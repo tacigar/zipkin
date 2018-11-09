@@ -21,6 +21,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.junit.Ignore;
 import org.junit.Test;
+import zipkin2.Endpoint;
 import zipkin2.Span;
 
 import static java.util.Arrays.asList;
@@ -89,8 +90,78 @@ public class NodeTest {
     List<Span> trace = asList(
       Span.newBuilder().traceId("a").id("a").build(),
       Span.newBuilder().traceId("a").parentId("a").id("b").build(),
+      Span.newBuilder().traceId("a").parentId("b").id("c").build(),
+      Span.newBuilder().traceId("a").parentId("c").id("d").build()
+    );
+    assertAncestry(trace);
+  }
+
+  /** Same as {@link #constructsTraceTree()}, except with shared span ID */
+  @Test public void constructsTraceTree_sharedId() {
+    List<Span> trace = asList(
+      Span.newBuilder().traceId("a").id("a").build(),
+      Span.newBuilder().traceId("a").parentId("a").id("b").build(),
+      Span.newBuilder().traceId("a").parentId("a").id("b").shared(true).build(),
       Span.newBuilder().traceId("a").parentId("b").id("c").build()
     );
+    assertAncestry(trace);
+  }
+
+  @Test public void constructsTraceTree_sharedRootId() {
+    List<Span> trace = asList(
+      Span.newBuilder().traceId("a").id("a").build(),
+      Span.newBuilder().traceId("a").id("a").shared(true).build(),
+      Span.newBuilder().traceId("a").parentId("a").id("b").build(),
+      Span.newBuilder().traceId("a").parentId("b").id("c").build()
+    );
+    assertAncestry(trace);
+  }
+
+  void assertAncestry(List<Span> trace) {
+    Node<Span> root = buildTree(trace);
+    assertThat(root.value()).isEqualTo(trace.get(0));
+
+    Node<Span> current = root;
+    for (int i = 1, length = trace.size() - 1; i < length; i++) {
+      current = current.children.get(0);
+      assertThat(current.value).isEqualTo(trace.get(i));
+      assertThat(current.children).extracting(Node::value)
+        .containsExactly(trace.get(i + 1));
+    }
+  }
+
+  @Test public void constructsTraceTree_qualifiesChildrenOfDuplicateServerSpans() {
+    List<Span> trace = asList(
+      Span.newBuilder().traceId("a").id("a").build(),
+      Span.newBuilder().traceId("a").parentId("a").id("b").build(),
+      localServiceName("foo", Span.newBuilder().traceId("a").parentId("a").id("b").shared(true)),
+      localServiceName("bar", Span.newBuilder().traceId("a").parentId("a").id("b").shared(true)),
+      localServiceName("bar", Span.newBuilder().traceId("a").parentId("b").id("c")),
+      localServiceName("foo", Span.newBuilder().traceId("a").parentId("b").id("d"))
+    );
+
+    Node<Span> a = buildTree(trace);
+    assertThat(a.value()).isEqualTo(trace.get(0));
+
+    Node<Span> b_client = a.children().get(0);
+    assertThat(b_client.value()).isEqualTo(trace.get(1));
+    assertThat(b_client.children()).extracting(Node::value)
+      .containsExactly(trace.get(3), trace.get(2));
+
+    Node<Span> b_server_bar = b_client.children().get(0);
+    assertThat(b_server_bar.children()).extracting(Node::value)
+      .containsExactly(trace.get(4));
+
+    Node<Span> b_server_foo = b_client.children().get(1);
+    assertThat(b_server_foo.children()).extracting(Node::value)
+      .containsExactly(trace.get(5));
+  }
+
+  static Span localServiceName(String serviceName, Span.Builder builder) {
+    return builder.localEndpoint(Endpoint.newBuilder().serviceName(serviceName).build()).build();
+  }
+
+  Node<Span> buildTree(List<Span> trace) {
     // TRACE is sorted with root span first, lets reverse them to make
     // sure the trace is stitched together by id.
     List<Span> copy = new ArrayList<>(trace);
@@ -99,18 +170,9 @@ public class NodeTest {
     Node.TreeBuilder<Span> treeBuilder =
       new Node.TreeBuilder<>(logger, copy.get(0).traceId());
     for (Span span : copy) {
-      treeBuilder.addNode(span.parentId(), span.id(), span);
+      treeBuilder.addNode(span.parentId(), span.id(), span.shared(), span.localServiceName(), span);
     }
-    Node<Span> root = treeBuilder.build();
-    assertThat(root.value())
-      .isEqualTo(trace.get(0));
-
-    assertThat(root.children()).extracting(Node::value)
-      .containsExactly(trace.get(1));
-
-    Node<Span> child = root.children().iterator().next();
-    assertThat(child.children()).extracting(Node::value)
-      .containsExactly(trace.get(2));
+    return treeBuilder.build();
   }
 
   @Test public void constructsTraceTree_dedupes() {
@@ -123,7 +185,7 @@ public class NodeTest {
     Node.TreeBuilder<Span> treeBuilder =
       new Node.TreeBuilder<>(logger, trace.get(0).traceId());
     for (Span span : trace) {
-      treeBuilder.addNode(span.parentId(), span.id(), span);
+      treeBuilder.addNode(span.parentId(), span.id(), span.shared(), span.localServiceName(), span);
     }
     Node<Span> root = treeBuilder.build();
 
@@ -141,12 +203,13 @@ public class NodeTest {
       Span.newBuilder().traceId("a").id("e").name("lost-0").build(),
       Span.newBuilder().traceId("a").id("f").name("lost-1").build());
     int treeSize = 0;
-    Node.TreeBuilder<Span> treeBuilder = new Node.TreeBuilder<>(logger, spans.get(0).traceId());
+    Node.TreeBuilder<Span> builder = new Node.TreeBuilder<>(logger, spans.get(0).traceId());
     for (Span span : spans) {
-      assertThat(treeBuilder.addNode(span.parentId(), span.id(), span))
-        .isTrue();
+      assertThat(
+        builder.addNode(span.parentId(), span.id(), span.shared(), span.localServiceName(), span)
+      ).isTrue();
     }
-    Node<Span> tree = treeBuilder.build();
+    Node<Span> tree = builder.build();
     Iterator<Node<Span>> iter = tree.traverse();
     while (iter.hasNext()) {
       iter.next();
@@ -166,7 +229,7 @@ public class NodeTest {
 
     Node.TreeBuilder<Span> treeBuilder = new Node.TreeBuilder<>(logger, s2.traceId());
     for (Span span : asList(s2, s3, s4)) {
-      treeBuilder.addNode(span.parentId(), span.id(), span);
+      treeBuilder.addNode(span.parentId(), span.id(), span.shared(), span.localServiceName(), span);
     }
     Node<Span> root = treeBuilder.build();
     assertThat(root.value())
@@ -185,7 +248,7 @@ public class NodeTest {
 
     Node.TreeBuilder<Span> treeBuilder = new Node.TreeBuilder<>(logger, s2.traceId());
     for (Span span : asList(s2, s3, s4)) {
-      treeBuilder.addNode(span.parentId(), span.id(), span);
+      treeBuilder.addNode(span.parentId(), span.id(), span.shared(), span.localServiceName(), span);
     }
     Node<Span> root = treeBuilder.build();
     assertThat(root.value())

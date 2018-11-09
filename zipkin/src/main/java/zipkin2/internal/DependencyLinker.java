@@ -47,49 +47,25 @@ public final class DependencyLinker {
     this.logger = logger;
   }
 
-  static final Node.MergeFunction<Span> MERGE_RPC = new MergeRpc();
-
-  static final class MergeRpc implements Node.MergeFunction<Span> {
-    @Override public Span merge(@Nullable Span left, @Nullable Span right) {
-      if (left == null) return right;
-      if (right == null) return left;
-      if (left.kind() == null) {
-        return copyError(left, right);
-      }
-      if (right.kind() == null) {
-        return copyError(right, left);
-      }
-      Span server = left.kind() == Kind.SERVER ? left : right;
-      Span client = left.equals(server) ? right : left;
-      if (server.remoteServiceName() != null) {
-        return copyError(client, server);
-      }
-      return copyError(client, server).toBuilder().remoteEndpoint(client.localEndpoint()).build();
-    }
-
-    static Span copyError(Span maybeError, Span result) {
-      String error = maybeError.tags().get("error");
-      if (error != null) {
-        return result.toBuilder().putTag("error", error).build();
-      }
-      return result;
-    }
-  }
-
   /**
    * @param spans spans where all spans have the same trace id
    */
   public DependencyLinker putTrace(Iterator<Span> spans) {
     if (!spans.hasNext()) return this;
-    Span first = spans.next();
+    List<Span> cleaned = new ArrayList<>();
+    while (spans.hasNext()) {
+      cleaned.add(spans.next());
+    }
+    cleaned = Trace.merge(cleaned);
+
+    Span first = cleaned.get(0);
     if (logger.isLoggable(FINE)) logger.fine("linking trace " + first.traceId());
 
     // Build a tree based on spanId and parentId values
-    Node.TreeBuilder<Span> builder = new Node.TreeBuilder<>(logger, MERGE_RPC, first.traceId());
-    builder.addNode(first.parentId(), first.id(), first);
-    while (spans.hasNext()) {
-      Span next = spans.next();
-      builder.addNode(next.parentId(), next.id(), next);
+    Node.TreeBuilder<Span> builder = new Node.TreeBuilder<>(logger, first.traceId());
+    for (int i = 0, length = cleaned.size(); i < length; i++) {
+      Span next = cleaned.get(i);
+      builder.addNode(next.parentId(), next.id(), next.shared(), next.localEndpoint(), next);
     }
 
     Node<Span> tree = builder.build();

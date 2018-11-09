@@ -15,7 +15,6 @@ package zipkin2.internal;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -67,12 +66,12 @@ public final class Node<V> {
     if (child == this) throw new IllegalArgumentException("circular dependency on " + this);
     child.parent = this;
     if (children.equals(Collections.emptyList())) children = new ArrayList<>();
-    children.add(child);
+    if (!children.contains(child)) children.add(child); // TODO: figure why duplicate adds
     return this;
   }
 
   /** Returns the children of this node. */
-  public Collection<Node<V>> children() {
+  public List<Node<V>> children() {
     return children;
   }
 
@@ -107,16 +106,6 @@ public final class Node<V> {
     }
   }
 
-  interface MergeFunction<V> {
-    V merge(@Nullable V existing, @Nullable V update);
-  }
-
-  static final MergeFunction FIRST_NOT_NULL = new MergeFunction() {
-    @Override public Object merge(@Nullable Object existing, @Nullable Object update) {
-      return existing != null ? existing : update;
-    }
-  };
-
   /**
    * Some operations do not require the entire span object. This creates a tree given (parent id,
    * id) pairs.
@@ -125,72 +114,101 @@ public final class Node<V> {
    */
   public static final class TreeBuilder<V> {
     final Logger logger;
-    final MergeFunction<V> mergeFunction;
     final String traceId;
 
     public TreeBuilder(Logger logger, String traceId) {
-      this(logger, FIRST_NOT_NULL, traceId);
-    }
-
-    TreeBuilder(Logger logger, MergeFunction<V> mergeFunction, String traceId) {
       this.logger = logger;
-      this.mergeFunction = mergeFunction;
       this.traceId = traceId;
     }
 
-    String rootId = null;
+    Key rootKey = null;
     Node<V> rootNode = null;
     List<Entry<V>> entries = new ArrayList<>();
     // Nodes representing the trace tree
-    Map<String, Node<V>> idToNode = new LinkedHashMap<>();
+    Map<Key, Node<V>> keyToNode = new LinkedHashMap<>();
     // Collect the parent-child relationships between all spans.
-    Map<String, String> idToParent = new LinkedHashMap<>(idToNode.size());
+    Map<Key, Key> keyToParent = new LinkedHashMap<>();
 
-    /** Returns false after logging to FINE if the value couldn't be added */
-    public boolean addNode(@Nullable String parentId, String id, V value) {
-      if (parentId != null) {
-        if (parentId.equals(id)) {
-          if (logger.isLoggable(FINE)) {
-            logger.fine(
-              format("skipping circular dependency: traceId=%s, spanId=%s", traceId, id));
-          }
-          return false;
+    /**
+     * This is a variant of a normal parent/child graph specialized for Zipkin. In a Zipkin tree, a
+     * parent and child can share the same ID if in an RPC. This variant treats a {@code shared}
+     * node as a child of any node matching the same ID.
+     *
+     * @return false after logging to FINE if the value couldn't be added
+     */
+    public boolean addNode(@Nullable String parentId, String id, @Nullable Boolean shared,
+      @Nullable Object qualifier, V value) {
+      if (id.equals(parentId)) {
+        if (logger.isLoggable(FINE)) {
+          logger.fine(format("skipping circular dependency: traceId=%s, spanId=%s", traceId, id));
         }
+        return false;
       }
-      idToParent.put(id, parentId);
-      entries.add(new Entry<>(parentId, id, value));
+      boolean sharedV = Boolean.TRUE.equals(shared);
+
+      // Assume first that we want to link to the same qualifier. We will post-process later if this
+      // is incorrect.
+      Key idKey = new Key(id, sharedV, null);
+      Key parentKey = null;
+      if (sharedV) { // assume the parent might be on another host
+        parentKey = new Key(id, false, null);
+        keyToParent.put(new Key(id, sharedV, qualifier), parentKey);
+      } else if (parentId != null) {
+        parentKey = new Key(parentId, false, null);
+      }
+
+      keyToParent.put(idKey, parentKey);
+      entries.add(new Entry<>(parentId, id, sharedV, qualifier, value));
       return true;
     }
 
     void processNode(Entry<V> entry) {
-      String parentId = entry.parentId != null ? entry.parentId : idToParent.get(entry.id);
-      String id = entry.id;
+      // TODO: the lookup key is to allow nodes who don't know the qualifier of their parent to find
+      // them in a map. There might be a way to do this differently.
+      Key lookupKey = new Key(entry.id, entry.shared, null);
       V value = entry.value;
 
-      if (parentId == null) {
-        if (rootId != null) {
+      Key parentKey = null;
+      if (lookupKey.shared) { // parent will have a different qualifier
+        parentKey = new Key(entry.id, false, null);
+      } else if (entry.parentId != null) {
+        // Check to see if a shared parent exists, and prefer that. This means the current entry is
+        // a child of a shared node.
+
+        // Check for a shared parent with the same qualifier
+        parentKey = new Key(entry.parentId, true, entry.qualifier);
+        if (keyToParent.containsKey(parentKey)) {
+          keyToParent.put(lookupKey, parentKey); // TODO: comment why
+        } else {
+          parentKey = new Key(entry.parentId, false, null);
+        }
+      }
+
+      Key key = new Key(entry.id, entry.shared, entry.qualifier);
+      if (parentKey == null) {
+        if (rootKey != null) {
           if (logger.isLoggable(FINE)) {
             logger.fine(format(
               "attributing span missing parent to root: traceId=%s, rootSpanId=%s, spanId=%s",
-              traceId, rootId, id));
+              traceId, rootKey.id, key.id));
           }
         } else {
-          rootId = id;
+          rootKey = key;
         }
       }
 
       Node<V> node = new Node<>(value);
       // special-case root, and attribute missing parents to it. In
       // other words, assume that the first root is the "real" root.
-      if (parentId == null && rootNode == null) {
+      if (parentKey == null && rootNode == null) {
         rootNode = node;
-        rootId = id;
-        idToParent.remove(id);
-      } else if (parentId == null && rootId.equals(id)) {
-        rootNode.setValue(mergeFunction.merge(rootNode.value, node.value));
+        rootKey = key;
+        keyToParent.remove(lookupKey);
+      } else if (lookupKey.shared) {
+        keyToNode.put(key, node);
+        keyToNode.put(lookupKey, node);
       } else {
-        Node<V> previous = idToNode.put(id, node);
-        if (previous != null) node.setValue(mergeFunction.merge(previous.value, node.value));
+        keyToNode.put(lookupKey, node);
       }
     }
 
@@ -200,47 +218,109 @@ public final class Node<V> {
         processNode(entries.get(i));
       }
 
+      if (rootNode == null) {
+        if (logger.isLoggable(FINE)) {
+          logger.fine("substituting dummy node for missing root span: traceId=" + traceId);
+        }
+        rootNode = new Node<>(null);
+      }
+
       // Materialize the tree using parent - child relationships
-      for (Map.Entry<String, String> entry : idToParent.entrySet()) {
-        Node<V> node = idToNode.get(entry.getKey());
-        Node<V> parent = idToNode.get(entry.getValue());
+      for (Map.Entry<Key, Key> entry : keyToParent.entrySet()) {
+        Node<V> node = keyToNode.get(entry.getKey());
+        Node<V> parent = keyToNode.get(entry.getValue());
         if (parent == null) { // handle headless
-          if (rootNode == null) {
-            if (logger.isLoggable(FINE)) {
-              logger.fine("substituting dummy node for missing root span: traceId=" + traceId);
-            }
-            rootNode = new Node<>(null);
-          }
           rootNode.addChild(node);
         } else {
           parent.addChild(node);
         }
       }
-      return rootNode != null ? rootNode : new Node<>(null);
+      return rootNode;
+    }
+  }
+
+  /**
+   * A node in the tree is not always unique on ID. Sharing is allowed once per ID (Ex: in RPC).
+   * However, it is possible in a retry scenario for accidental duplicate ID sharing to occur
+   */
+  static final class Key {
+    final String id;
+    boolean shared;
+    @Nullable final Object qualifier;
+
+    Key(String id, boolean shared, @Nullable Object qualifier) {
+      if (id == null) throw new NullPointerException("id == null");
+      this.id = id;
+      this.shared = shared;
+      this.qualifier = qualifier;
+    }
+
+    @Override public String toString() {
+      return "Key{id=" + id + ", shared=" + shared + ", qualifier=" + qualifier + "}";
+    }
+
+    @Override public boolean equals(Object o) {
+      if (o == this) return true;
+      if (!(o instanceof Key)) return false;
+      Key that = (Key) o;
+      return id.equals(that.id) && shared == that.shared && equal(qualifier, that.qualifier);
+    }
+
+    static boolean equal(Object a, Object b) {
+      return a == b || (a != null && a.equals(b));
+    }
+
+    @Override public int hashCode() {
+      int result = 1;
+      result *= 1000003;
+      result ^= id.hashCode();
+      result *= 1000003;
+      result ^= shared ? 1231 : 1237;
+      result *= 1000003;
+      result ^= (qualifier == null) ? 0 : qualifier.hashCode();
+      return result;
     }
   }
 
   static final class Entry<V> {
     @Nullable final String parentId;
     final String id;
+    final boolean shared;
+    @Nullable final Object qualifier;
     final V value;
 
-    Entry(@Nullable String parentId, String id, V value) {
+    Entry(@Nullable String parentId, String id, boolean shared, @Nullable Object qualifier,
+      V value) {
       if (id == null) throw new NullPointerException("id == null");
       if (value == null) throw new NullPointerException("value == null");
       this.parentId = parentId;
       this.id = id;
+      this.shared = shared;
+      this.qualifier = qualifier;
       this.value = value;
     }
 
-    @Override
-    public String toString() {
-      return "Entry{parentId=" + parentId + ", id=" + id + ", value=" + value + "}";
+    @Override public String toString() {
+      return "Entry{parentId="
+        + parentId
+        + ", id="
+        + id
+        + ", shared="
+        + shared
+        + ", qualifier="
+        + qualifier
+        + ", value="
+        + value
+        + "}";
     }
   }
 
-  @Override
-  public String toString() {
-    return "Node{parent=" + parent + ", value=" + value + ", children=" + children + "}";
+  @Override public String toString() {
+    List<V> childrenValues = new ArrayList<>();
+    for (int i = 0, length = children.size(); i < length; i++) {
+      childrenValues.add(children.get(i).value);
+    }
+    return "Node{parent=" + (parent != null ? parent.value : null)
+      + ", value=" + value + ", children=" + childrenValues + "}";
   }
 }

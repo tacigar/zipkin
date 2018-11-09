@@ -84,13 +84,16 @@ describe('TreeBuilder', () => {
       {traceId: 'a', id: 'a'},
       {traceId: 'a', parentId: 'a', id: 'b'},
       {traceId: 'a', parentId: 'b', id: 'c'},
+      {traceId: 'a', parentId: 'c', id: 'd'}
     ];
 
     const treeBuilder = new TreeBuilder({traceId: 'a'});
 
     // TRACE is sorted with root span first, lets reverse them to make
     // sure the trace is stitched together by id.
-    trace.slice(0).reverse().forEach((span) => treeBuilder.addNode(span.parentId, span.id, span));
+    trace.slice(0).reverse().forEach((span) =>
+      treeBuilder.addNode(span.parentId, span.id, false, span)
+    );
 
     const root = treeBuilder.build();
     expect(root.value).to.equal(trace[0]);
@@ -109,7 +112,7 @@ describe('TreeBuilder', () => {
     ];
 
     const treeBuilder = new TreeBuilder({traceId: 'a'});
-    trace.forEach((span) => treeBuilder.addNode(span.parentId, span.id, span));
+    trace.forEach((span) => treeBuilder.addNode(span.parentId, span.id, false, span));
     const root = treeBuilder.build();
 
     expect(root.value).to.equal(trace[0]);
@@ -126,7 +129,7 @@ describe('TreeBuilder', () => {
     ];
 
     const treeBuilder = new TreeBuilder({traceId: 'a'});
-    trace.forEach((span) => treeBuilder.addNode(span.parentId, span.id, span));
+    trace.forEach((span) => treeBuilder.addNode(span.parentId, span.id, false, span));
     const root = treeBuilder.build();
 
     expect(root.traverse()).to.deep.equal(trace);
@@ -142,7 +145,7 @@ describe('TreeBuilder', () => {
     ];
 
     const treeBuilder = new TreeBuilder({traceId: 'a'});
-    trace.forEach((span) => treeBuilder.addNode(span.parentId, span.id, span));
+    trace.forEach((span) => treeBuilder.addNode(span.parentId, span.id, false, span));
     const root = treeBuilder.build();
 
     should.equal(root.value, undefined);
