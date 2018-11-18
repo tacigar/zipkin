@@ -53,8 +53,22 @@ public class NodeTest {
   }
 
   /**
-   * <p>The following tree should traverse in alphabetical order <pre>{@code
+   * When generating a tree, we may have multiple ways to address the same node (ex based on a
+   * qualifier like endpoint). Multiple calls are possible in this case, but it is never valid to
+   * process more than once.
+   */
+  @Test public void addChild_redundantIgnored() {
+    Node<Character> a = new Node<>('a');
+    Node<Character> b = new Node<>('b');
+    a.addChild(b);
+    a.addChild(b);
+    assertThat(a.children()).containsExactly(b);
+  }
+
+  /**
+   * The following tree should traverse in alphabetical order
    *
+   * <p><pre>{@code
    *          a
    *        / | \
    *       b  c  d

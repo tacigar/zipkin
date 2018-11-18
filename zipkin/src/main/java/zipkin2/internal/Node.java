@@ -62,11 +62,12 @@ public final class Node<V> {
     return this;
   }
 
+  /** Adds the child IFF it isn't already a child. */
   public Node<V> addChild(Node<V> child) {
     if (child == this) throw new IllegalArgumentException("circular dependency on " + this);
-    child.parent = this;
     if (children.equals(Collections.emptyList())) children = new ArrayList<>();
-    if (!children.contains(child)) children.add(child); // TODO: figure why duplicate adds
+    if (!children.contains(child)) children.add(child);
+    child.parent = this;
     return this;
   }
 
@@ -162,30 +163,47 @@ public final class Node<V> {
       return true;
     }
 
+    /**
+     * When processing nodes, we index them by their ID, whether that ID is shared, and a qualifier
+     * such as endpoint. This is important because in zipkin (specifically B3), a server can share
+     * (re-use) the same ID as its client. Any child of that server span should link to the same
+     * endpoint. If we didn't index by qualifier, descendants of multiple servers responding to the
+     * same client would be placed incorrectly in the tree.
+     *
+     * <p>Note: this only works as the "id to parent" map is populated for all entries prior to this
+     * stage.
+     */
     void processNode(Entry<V> entry) {
-      // TODO: the lookup key is to allow nodes who don't know the qualifier of their parent to find
-      // them in a map. There might be a way to do this differently.
-      Key lookupKey = new Key(entry.id, entry.shared, null);
+      Key key = new Key(entry.id, entry.shared, entry.qualifier);
+      Key unqualifiedKey = new Key(entry.id, entry.shared, null);
       V value = entry.value;
 
       Key parentKey = null;
-      if (lookupKey.shared) { // parent will have a different qualifier
+      if (key.shared) {
+        // For example, this is a server span. It will very likely be on a different endpoint than
+        // the client. So we want to pick the first node that has the same ID and is not shared
+        // (clients never know if they can be shared).
         parentKey = new Key(entry.id, false, null);
       } else if (entry.parentId != null) {
-        // Check to see if a shared parent exists, and prefer that. This means the current entry is
-        // a child of a shared node.
+        // We are not a root span, and not a shared server span. Proceed in most specific to least.
 
-        // Check for a shared parent with the same qualifier
+        // We could be the child of a shared server span (ex a local (intermediate) span on the same
+        // endpoint). This is the most specific case, so we try this first.
         parentKey = new Key(entry.parentId, true, entry.qualifier);
         if (keyToParent.containsKey(parentKey)) {
-          keyToParent.put(lookupKey, parentKey); // TODO: comment why
+          keyToParent.put(unqualifiedKey, parentKey);
         } else {
+          // Next, prefer the same host in case data was incorrectly send w/o a shared qualifier
+          parentKey = new Key(entry.parentId, false, entry.qualifier);
+          if (keyToParent.containsKey(parentKey)) {
+            // non-shared spans lookup unqualified. Make sure any descendants of the current entry
+            // can find their parent.
+            keyToParent.put(unqualifiedKey, parentKey);
+          }
+          // At this point, we know our own parent is a normal span, so index it without a qualifier
           parentKey = new Key(entry.parentId, false, null);
         }
-      }
-
-      Key key = new Key(entry.id, entry.shared, entry.qualifier);
-      if (parentKey == null) {
+      } else { // we are root or don't know our parent
         if (rootKey != null) {
           if (logger.isLoggable(FINE)) {
             logger.fine(format(
@@ -203,12 +221,14 @@ public final class Node<V> {
       if (parentKey == null && rootNode == null) {
         rootNode = node;
         rootKey = key;
-        keyToParent.remove(lookupKey);
-      } else if (lookupKey.shared) {
+        keyToParent.remove(unqualifiedKey);
+      } else if (key.shared) {
+        // in the case of shared server span, we need to address it both ways
+        // TODO: adrian document why
         keyToNode.put(key, node);
-        keyToNode.put(lookupKey, node);
+        keyToNode.put(unqualifiedKey, node);
       } else {
-        keyToNode.put(lookupKey, node);
+        keyToNode.put(unqualifiedKey, node);
       }
     }
 
