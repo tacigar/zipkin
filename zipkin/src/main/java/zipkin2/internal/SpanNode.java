@@ -105,10 +105,6 @@ public final class SpanNode {
     return this;
   }
 
-  /**
-   * Some operations do not require the entire span object. This creates a tree given (parent id,
-   * id) pairs.
-   */
   public static final class Builder {
     final Logger logger;
 
@@ -120,7 +116,12 @@ public final class SpanNode {
     Map<Key, SpanNode> keyToNode = new LinkedHashMap<>();
     Map<Key, Key> keyToParent = new LinkedHashMap<>();
 
-    /** Builds a trace tree from merged input or returns an empty tree. */
+    /**
+     * Builds a trace tree by merging and processing the input or returns an empty tree.
+     *
+     * <p>While the input can be incomplete or redundant, they must all be a part of the same trace
+     * (e.g. all share the same {@link Span#traceId()}).
+     */
     public SpanNode build(List<Span> spans) {
       if (spans.isEmpty()) return new SpanNode(null);
 
