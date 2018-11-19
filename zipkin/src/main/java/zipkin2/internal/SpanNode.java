@@ -123,7 +123,7 @@ public final class SpanNode {
      * (e.g. all share the same {@link Span#traceId()}).
      */
     public SpanNode build(List<Span> spans) {
-      if (spans.isEmpty()) return new SpanNode(null);
+      if (spans.isEmpty()) throw new IllegalArgumentException("spans were empty");
 
       // In order to make a tree, we need clean data. This will merge any duplicates so that we
       // don't have redundant leaves on the tree.
@@ -222,14 +222,7 @@ public final class SpanNode {
         if (keyToParent.containsKey(parentKey)) {
           keyToParent.put(noEndpointKey, parentKey);
         } else {
-          // Next, prefer the same endpoint in case data was incorrectly send w/o a shared endpoint
-          parentKey = new Key(span.parentId(), false, endpoint);
-          if (keyToParent.containsKey(parentKey)) {
-            // non-shared spans lookup noEndpoint. Make sure any descendants of the current entry
-            // can find their parent.
-            keyToParent.put(noEndpointKey, parentKey);
-          }
-          // At this point, we know our own parent is a normal span, so index it without a endpoint
+          // Now, we know our own parent is a not a shared ID span: index it without an endpoint
           parentKey = new Key(span.parentId(), false, null);
         }
       } else { // we are root or don't know our parent
