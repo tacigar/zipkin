@@ -164,6 +164,23 @@ public class SpanNodeTest {
       localServiceName("foo", Span.newBuilder().traceId("a").parentId("b").id("d"))
     );
 
+    assertServerAncestry(trace);
+  }
+
+  @Test public void constructsTraceTree_qualifiesChildrenOfDuplicateServerSpans_mixedShared() {
+    List<Span> trace = asList(
+      Span.newBuilder().traceId("a").id("a").build(),
+      Span.newBuilder().traceId("a").parentId("a").id("b").build(),
+      localServiceName("foo", Span.newBuilder().traceId("a").parentId("b").id("c")),
+      localServiceName("bar", Span.newBuilder().traceId("a").parentId("a").id("b").shared(true)),
+      localServiceName("bar", Span.newBuilder().traceId("a").parentId("b").id("d")),
+      localServiceName("foo", Span.newBuilder().traceId("a").parentId("c").id("e"))
+    );
+
+    assertServerAncestry(trace);
+  }
+
+  void assertServerAncestry(List<Span> trace) {
     SpanNode a = buildTree(trace);
     assertThat(a.span()).isEqualTo(trace.get(0));
 

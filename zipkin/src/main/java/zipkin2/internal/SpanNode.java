@@ -112,9 +112,9 @@ public final class SpanNode {
       this.logger = logger;
     }
 
-    SpanNode rootNode = null;
+    SpanNode rootSpan = null;
     Map<Key, SpanNode> keyToNode = new LinkedHashMap<>();
-    Map<Key, Key> keyToParent = new LinkedHashMap<>();
+    Map<Key, Key> spanToParent = new LinkedHashMap<>();
 
     /**
      * Builds a trace tree by merging and processing the input or returns an empty tree.
@@ -144,25 +144,25 @@ public final class SpanNode {
       }
 
       // If we haven't found any root span, we can still make a tree using a synthetic node.
-      if (rootNode == null) {
+      if (rootSpan == null) {
         if (logger.isLoggable(FINE)) {
           logger.fine("substituting dummy node for missing root span: traceId=" + traceId);
         }
-        rootNode = new SpanNode(null);
+        rootSpan = new SpanNode(null);
       }
 
       // At this point, we have the most reliable parent-child relationships and can allocate spans
       // corresponding the the best place in the trace tree.
-      for (Map.Entry<Key, Key> entry : keyToParent.entrySet()) {
-        SpanNode node = keyToNode.get(entry.getKey());
+      for (Map.Entry<Key, Key> entry : spanToParent.entrySet()) {
+        SpanNode child = keyToNode.get(entry.getKey());
         SpanNode parent = keyToNode.get(entry.getValue());
-        if (parent == null) { // handle headless
-          rootNode.addChild(node);
+        if (parent == null) { // Handle headless by attaching spans missing parents to root
+          rootSpan.addChild(child);
         } else {
-          parent.addChild(node);
+          parent.addChild(child);
         }
       }
-      return rootNode;
+      return rootSpan;
     }
 
     /**
@@ -179,18 +179,18 @@ public final class SpanNode {
      * endpoint data that might be available.
      */
     void index(Span span) {
-      // Assume first that we want to link to the same endpoint. We will post-process later if this
-      // is incorrect.
-      Key idKey = new Key(span.id(), span.shared(), null);
-      Key parentKey = null;
-      if (idKey.shared) { // assume the parent might be on another endpoint
-        parentKey = new Key(idKey.id, false, null);
-        keyToParent.put(new Key(idKey.id, true, span.localEndpoint()), parentKey);
-      } else if (span.parentId() != null) {
-        parentKey = new Key(span.parentId(), false, null);
+      Key idKey, parentKey;
+      if (Boolean.TRUE.equals(span.shared())) {
+        // we need to classify a shared span by its endpoint in case multiple servers respond to the
+        // same ID sent by the client.
+        idKey = new Key(span.id(), true, span.localEndpoint());
+        // the parent of a server span is a client, which is not ambiguous for a given span ID.
+        parentKey = new Key(span.id(), false, null);
+      } else {
+        idKey = new Key(span.id(), span.shared(), null);
+        parentKey = span.parentId() != null ? new Key(span.parentId(), false, null) : null;
       }
-
-      keyToParent.put(idKey, parentKey);
+      spanToParent.put(idKey, parentKey);
     }
 
     /**
@@ -207,30 +207,29 @@ public final class SpanNode {
       Key key = new Key(span.id(), span.shared(), span.localEndpoint());
       Key noEndpointKey = endpoint != null ? new Key(span.id(), span.shared(), null) : key;
 
-      Key parentKey = null;
+      Key parent = null;
       if (key.shared) {
-        // For example, this is a server span. It will very likely be on a different endpoint than
-        // the client. So we want to pick the first span that has the same ID and is not shared
-        // (clients never know if they can be shared).
-        parentKey = new Key(span.id(), false, null);
+        // Shared is a server span. It will very likely be on a different endpoint than the client.
+        // Clients are not ambiguous by ID, so we don't need to qualify by endpoint.
+        parent = new Key(span.id(), false, null);
       } else if (span.parentId() != null) {
         // We are not a root span, and not a shared server span. Proceed in most specific to least.
 
         // We could be the child of a shared server span (ex a local (intermediate) span on the same
         // endpoint). This is the most specific case, so we try this first.
-        parentKey = new Key(span.parentId(), true, endpoint);
-        if (keyToParent.containsKey(parentKey)) {
-          keyToParent.put(noEndpointKey, parentKey);
+        parent = new Key(span.parentId(), true, endpoint);
+        if (spanToParent.containsKey(parent)) {
+          spanToParent.put(noEndpointKey, parent);
         } else {
-          // Now, we know our own parent is a not a shared ID span: index it without an endpoint
-          parentKey = new Key(span.parentId(), false, null);
+          // If there's no shared parent, fall back to normal case which is unqualified beyond ID.
+          parent = new Key(span.parentId(), false, null);
         }
       } else { // we are root or don't know our parent
-        if (rootNode != null) {
+        if (rootSpan != null) {
           if (logger.isLoggable(FINE)) {
             logger.fine(format(
               "attributing span missing parent to root: traceId=%s, rootSpanId=%s, spanId=%s",
-              span.traceId(), rootNode.span().id(), key.id));
+              span.traceId(), rootSpan.span().id(), key.id));
           }
         }
       }
@@ -238,11 +237,11 @@ public final class SpanNode {
       SpanNode node = new SpanNode(span);
       // special-case root, and attribute missing parents to it. In
       // other words, assume that the first root is the "real" root.
-      if (parentKey == null && rootNode == null) {
-        rootNode = node;
-        keyToParent.remove(noEndpointKey);
+      if (parent == null && rootSpan == null) {
+        rootSpan = node;
+        spanToParent.remove(noEndpointKey);
       } else if (key.shared) {
-        // in the case of shared server span, we need to address it both ways, in case intermediate
+        // In the case of shared server span, we need to address it both ways, in case intermediate
         // spans are lacking endpoint information.
         keyToNode.put(key, node);
         keyToNode.put(noEndpointKey, node);
