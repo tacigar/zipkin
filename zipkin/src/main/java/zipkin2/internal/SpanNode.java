@@ -116,30 +116,33 @@ public final class SpanNode {
       this.logger = logger;
     }
 
-    Key rootKey = null;
     SpanNode rootNode = null;
-    // Nodes representing the trace tree
     Map<Key, SpanNode> keyToNode = new LinkedHashMap<>();
-    // Collect the parent-child relationships between all spans.
     Map<Key, Key> keyToParent = new LinkedHashMap<>();
 
     /** Builds a trace tree from merged input or returns an empty tree. */
     public SpanNode build(List<Span> spans) {
       if (spans.isEmpty()) return new SpanNode(null);
 
+      // In order to make a tree, we need clean data. This will merge any duplicates so that we
+      // don't have redundant leaves on the tree.
       List<Span> cleaned = Trace.merge(spans);
       String traceId = cleaned.get(0).traceId();
 
       if (logger.isLoggable(FINE)) logger.fine("building trace tree: traceId=" + traceId);
 
+      // Next, index all the spans so that we can understand any relationships.
       for (int i = 0, length = cleaned.size(); i < length; i++) {
         index(cleaned.get(i));
       }
 
+      // Now that we've index references to all spans, we can revise any parent-child relationships.
+      // Notably, by now, we can tell which is the root-most.
       for (int i = 0, length = cleaned.size(); i < length; i++) {
         process(cleaned.get(i));
       }
 
+      // If we haven't found any root span, we can still make a tree using a synthetic node.
       if (rootNode == null) {
         if (logger.isLoggable(FINE)) {
           logger.fine("substituting dummy node for missing root span: traceId=" + traceId);
@@ -147,7 +150,8 @@ public final class SpanNode {
         rootNode = new SpanNode(null);
       }
 
-      // Materialize the tree using parent - child relationships
+      // At this point, we have the most reliable parent-child relationships and can allocate spans
+      // corresponding the the best place in the trace tree.
       for (Map.Entry<Key, Key> entry : keyToParent.entrySet()) {
         SpanNode node = keyToNode.get(entry.getKey());
         SpanNode parent = keyToNode.get(entry.getValue());
@@ -228,14 +232,12 @@ public final class SpanNode {
           parentKey = new Key(span.parentId(), false, null);
         }
       } else { // we are root or don't know our parent
-        if (rootKey != null) {
+        if (rootNode != null) {
           if (logger.isLoggable(FINE)) {
             logger.fine(format(
               "attributing span missing parent to root: traceId=%s, rootSpanId=%s, spanId=%s",
-              span.traceId(), rootKey.id, key.id));
+              span.traceId(), rootNode.span().id(), key.id));
           }
-        } else {
-          rootKey = key;
         }
       }
 
@@ -244,11 +246,10 @@ public final class SpanNode {
       // other words, assume that the first root is the "real" root.
       if (parentKey == null && rootNode == null) {
         rootNode = node;
-        rootKey = key;
         keyToParent.remove(noEndpointKey);
       } else if (key.shared) {
-        // in the case of shared server span, we need to address it both ways
-        // TODO: adrian document why
+        // in the case of shared server span, we need to address it both ways, in case intermediate
+        // spans are lacking endpoint information.
         keyToNode.put(key, node);
         keyToNode.put(noEndpointKey, node);
       } else {
