@@ -23,47 +23,48 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Queue;
 import java.util.logging.Logger;
+import zipkin2.Endpoint;
+import zipkin2.Span;
 
 import static java.lang.String.format;
 import static java.util.logging.Level.FINE;
 
 /**
- * Convenience type representing a tree. This is here because multiple facets in zipkin require
- * traversing the trace tree. For example, looking at network boundaries to correct clock skew, or
- * counting requests imply visiting the tree.
- *
- * @param <V> the node's value. Ex a full span or a tuple like {@code (serviceName, isLocal)}
+ * Convenience type representing a trace tree. Multiple Zipkin features require a trace tree. For
+ * example, looking at network boundaries to correct clock skew and aggregating requests paths imply
+ * visiting the tree.
  */
-public final class Node<V> {
-  /** Set via {@link #addChild(Node)} */
-  Node<V> parent;
-  V value;
+public final class SpanNode {
+  /** Set via {@link #addChild(SpanNode)} */
+  SpanNode parent;
+  Span span;
   /** mutable to avoid allocating lists for childless nodes */
-  List<Node<V>> children = Collections.emptyList();
+  List<SpanNode> children = Collections.emptyList();
 
-  Node(@Nullable V value) {
-    this.value = value;
+  SpanNode(@Nullable Span span) {
+    this.span = span;
   }
 
   /** Returns the parent, or null if root */
-  @Nullable public Node<V> parent() {
+  @Nullable public SpanNode parent() {
     return parent;
   }
 
-  /** Returns the value, or null if a synthetic root node */
-  @Nullable public V value() {
-    return value;
+  /** Returns the span, or null if a synthetic root span */
+  @Nullable public Span span() {
+    return span;
   }
 
-  /** Mutable as some transformations, such as clock skew, adjust the current node in the tree. */
-  public Node<V> setValue(V newValue) {
-    if (newValue == null) throw new NullPointerException("newValue == null");
-    this.value = newValue;
+  /** Mutable as some transformations, such as clock skew, adjust the current span in the tree. */
+  public SpanNode span(Span newSpan) {
+    if (newSpan == null) throw new NullPointerException("newSpan == null");
+    this.span = newSpan;
     return this;
   }
 
   /** Adds the child IFF it isn't already a child. */
-  public Node<V> addChild(Node<V> child) {
+  public SpanNode addChild(SpanNode child) {
+    if (child == null) throw new NullPointerException("child == null");
     if (child == this) throw new IllegalArgumentException("circular dependency on " + this);
     if (children.equals(Collections.emptyList())) children = new ArrayList<>();
     if (!children.contains(child)) children.add(child);
@@ -72,19 +73,19 @@ public final class Node<V> {
   }
 
   /** Returns the children of this node. */
-  public List<Node<V>> children() {
+  public List<SpanNode> children() {
     return children;
   }
 
   /** Traverses the tree, breadth-first. */
-  public Iterator<Node<V>> traverse() {
-    return new BreadthFirstIterator<>(this);
+  public Iterator<SpanNode> traverse() {
+    return new BreadthFirstIterator(this);
   }
 
-  static final class BreadthFirstIterator<V> implements Iterator<Node<V>> {
-    private final Queue<Node<V>> queue = new ArrayDeque<>();
+  static final class BreadthFirstIterator implements Iterator<SpanNode> {
+    private final Queue<SpanNode> queue = new ArrayDeque<>();
 
-    BreadthFirstIterator(Node<V> root) {
+    BreadthFirstIterator(SpanNode root) {
       queue.add(root);
     }
 
@@ -94,9 +95,9 @@ public final class Node<V> {
     }
 
     @Override
-    public Node<V> next() {
+    public SpanNode next() {
       if (!hasNext()) throw new NoSuchElementException();
-      Node<V> result = queue.remove();
+      SpanNode result = queue.remove();
       queue.addAll(result.children);
       return result;
     }
@@ -110,10 +111,8 @@ public final class Node<V> {
   /**
    * Some operations do not require the entire span object. This creates a tree given (parent id,
    * id) pairs.
-   *
-   * @param <V> same type as {@link Node#value}
    */
-  public static final class TreeBuilder<V> {
+  public static final class TreeBuilder {
     final Logger logger;
     final String traceId;
 
@@ -123,65 +122,64 @@ public final class Node<V> {
     }
 
     Key rootKey = null;
-    Node<V> rootNode = null;
-    List<Entry<V>> entries = new ArrayList<>();
+    SpanNode rootNode = null;
+    List<Entry> entries = new ArrayList<>();
     // Nodes representing the trace tree
-    Map<Key, Node<V>> keyToNode = new LinkedHashMap<>();
+    Map<Key, SpanNode> keyToNode = new LinkedHashMap<>();
     // Collect the parent-child relationships between all spans.
     Map<Key, Key> keyToParent = new LinkedHashMap<>();
 
     /**
-     * This is a variant of a normal parent/child graph specialized for Zipkin. In a Zipkin tree, a
-     * parent and child can share the same ID if in an RPC. This variant treats a {@code shared}
-     * node as a child of any node matching the same ID.
+     * In a Zipkin trace, a parent and child can share the same ID if in an RPC. This variant treats
+     * a {@code shared} span as a child of any span matching the same ID.
      *
-     * @return false after logging to FINE if the value couldn't be added
+     * @return false after logging to FINE if the span couldn't be added
      */
-    public boolean addNode(@Nullable String parentId, String id, @Nullable Boolean shared,
-      @Nullable Object qualifier, V value) {
-      if (id.equals(parentId)) {
+    public boolean addNode(Span span) {
+      String id = span.id();
+      if (id.equals(span.parentId())) {
         if (logger.isLoggable(FINE)) {
           logger.fine(format("skipping circular dependency: traceId=%s, spanId=%s", traceId, id));
         }
         return false;
       }
-      boolean sharedV = Boolean.TRUE.equals(shared);
+      boolean sharedV = Boolean.TRUE.equals(span.shared());
+      Endpoint endpoint = span.localEndpoint();
 
-      // Assume first that we want to link to the same qualifier. We will post-process later if this
+      // Assume first that we want to link to the same endpoint. We will post-process later if this
       // is incorrect.
       Key idKey = new Key(id, sharedV, null);
       Key parentKey = null;
       if (sharedV) { // assume the parent might be on another host
         parentKey = new Key(id, false, null);
-        keyToParent.put(new Key(id, sharedV, qualifier), parentKey);
-      } else if (parentId != null) {
-        parentKey = new Key(parentId, false, null);
+        keyToParent.put(new Key(id, sharedV, endpoint), parentKey);
+      } else if (span.parentId() != null) {
+        parentKey = new Key(span.parentId(), false, null);
       }
 
       keyToParent.put(idKey, parentKey);
-      entries.add(new Entry<>(parentId, id, sharedV, qualifier, value));
+      entries.add(new Entry(span.parentId(), id, sharedV, endpoint, span));
       return true;
     }
 
     /**
-     * When processing nodes, we index them by their ID, whether that ID is shared, and a qualifier
+     * When processing nodes, we index them by their ID, whether that ID is shared, and a endpoint
      * such as endpoint. This is important because in zipkin (specifically B3), a server can share
      * (re-use) the same ID as its client. Any child of that server span should link to the same
-     * endpoint. If we didn't index by qualifier, descendants of multiple servers responding to the
+     * endpoint. If we didn't index by endpoint, descendants of multiple servers responding to the
      * same client would be placed incorrectly in the tree.
      *
-     * <p>Note: this only works as the "id to parent" map is populated for all entries prior to this
-     * stage.
+     * <p>Note: this only works as the "id to parent" map is populated for all entries prior to
+     * this stage.
      */
-    void processNode(Entry<V> entry) {
-      Key key = new Key(entry.id, entry.shared, entry.qualifier);
-      Key unqualifiedKey = new Key(entry.id, entry.shared, null);
-      V value = entry.value;
+    void processNode(Entry entry) {
+      Key key = new Key(entry.id, entry.shared, entry.endpoint);
+      Key noEndpointKey = new Key(entry.id, entry.shared, null);
 
       Key parentKey = null;
       if (key.shared) {
         // For example, this is a server span. It will very likely be on a different endpoint than
-        // the client. So we want to pick the first node that has the same ID and is not shared
+        // the client. So we want to pick the first span that has the same ID and is not shared
         // (clients never know if they can be shared).
         parentKey = new Key(entry.id, false, null);
       } else if (entry.parentId != null) {
@@ -189,18 +187,18 @@ public final class Node<V> {
 
         // We could be the child of a shared server span (ex a local (intermediate) span on the same
         // endpoint). This is the most specific case, so we try this first.
-        parentKey = new Key(entry.parentId, true, entry.qualifier);
+        parentKey = new Key(entry.parentId, true, entry.endpoint);
         if (keyToParent.containsKey(parentKey)) {
-          keyToParent.put(unqualifiedKey, parentKey);
+          keyToParent.put(noEndpointKey, parentKey);
         } else {
-          // Next, prefer the same host in case data was incorrectly send w/o a shared qualifier
-          parentKey = new Key(entry.parentId, false, entry.qualifier);
+          // Next, prefer the same host in case data was incorrectly send w/o a shared endpoint
+          parentKey = new Key(entry.parentId, false, entry.endpoint);
           if (keyToParent.containsKey(parentKey)) {
-            // non-shared spans lookup unqualified. Make sure any descendants of the current entry
+            // non-shared spans lookup noEndpoint. Make sure any descendants of the current entry
             // can find their parent.
-            keyToParent.put(unqualifiedKey, parentKey);
+            keyToParent.put(noEndpointKey, parentKey);
           }
-          // At this point, we know our own parent is a normal span, so index it without a qualifier
+          // At this point, we know our own parent is a normal span, so index it without a endpoint
           parentKey = new Key(entry.parentId, false, null);
         }
       } else { // we are root or don't know our parent
@@ -215,25 +213,25 @@ public final class Node<V> {
         }
       }
 
-      Node<V> node = new Node<>(value);
+      SpanNode node = new SpanNode(entry.span);
       // special-case root, and attribute missing parents to it. In
       // other words, assume that the first root is the "real" root.
       if (parentKey == null && rootNode == null) {
         rootNode = node;
         rootKey = key;
-        keyToParent.remove(unqualifiedKey);
+        keyToParent.remove(noEndpointKey);
       } else if (key.shared) {
         // in the case of shared server span, we need to address it both ways
         // TODO: adrian document why
         keyToNode.put(key, node);
-        keyToNode.put(unqualifiedKey, node);
+        keyToNode.put(noEndpointKey, node);
       } else {
-        keyToNode.put(unqualifiedKey, node);
+        keyToNode.put(noEndpointKey, node);
       }
     }
 
     /** Builds a tree from calls to {@link #addNode}, or returns an empty tree. */
-    public Node<V> build() {
+    public SpanNode build() {
       for (int i = 0, length = entries.size(); i < length; i++) {
         processNode(entries.get(i));
       }
@@ -242,13 +240,13 @@ public final class Node<V> {
         if (logger.isLoggable(FINE)) {
           logger.fine("substituting dummy node for missing root span: traceId=" + traceId);
         }
-        rootNode = new Node<>(null);
+        rootNode = new SpanNode(null);
       }
 
       // Materialize the tree using parent - child relationships
       for (Map.Entry<Key, Key> entry : keyToParent.entrySet()) {
-        Node<V> node = keyToNode.get(entry.getKey());
-        Node<V> parent = keyToNode.get(entry.getValue());
+        SpanNode node = keyToNode.get(entry.getKey());
+        SpanNode parent = keyToNode.get(entry.getValue());
         if (parent == null) { // handle headless
           rootNode.addChild(node);
         } else {
@@ -260,30 +258,30 @@ public final class Node<V> {
   }
 
   /**
-   * A node in the tree is not always unique on ID. Sharing is allowed once per ID (Ex: in RPC).
+   * A span in the tree is not always unique on ID. Sharing is allowed once per ID (Ex: in RPC).
    * However, it is possible in a retry scenario for accidental duplicate ID sharing to occur
    */
   static final class Key {
     final String id;
     boolean shared;
-    @Nullable final Object qualifier;
+    @Nullable final Endpoint endpoint;
 
-    Key(String id, boolean shared, @Nullable Object qualifier) {
+    Key(String id, boolean shared, @Nullable Endpoint endpoint) {
       if (id == null) throw new NullPointerException("id == null");
       this.id = id;
       this.shared = shared;
-      this.qualifier = qualifier;
+      this.endpoint = endpoint;
     }
 
     @Override public String toString() {
-      return "Key{id=" + id + ", shared=" + shared + ", qualifier=" + qualifier + "}";
+      return "Key{id=" + id + ", shared=" + shared + ", endpoint=" + endpoint + "}";
     }
 
     @Override public boolean equals(Object o) {
       if (o == this) return true;
       if (!(o instanceof Key)) return false;
       Key that = (Key) o;
-      return id.equals(that.id) && shared == that.shared && equal(qualifier, that.qualifier);
+      return id.equals(that.id) && shared == that.shared && equal(endpoint, that.endpoint);
     }
 
     static boolean equal(Object a, Object b) {
@@ -297,27 +295,27 @@ public final class Node<V> {
       result *= 1000003;
       result ^= shared ? 1231 : 1237;
       result *= 1000003;
-      result ^= (qualifier == null) ? 0 : qualifier.hashCode();
+      result ^= (endpoint == null) ? 0 : endpoint.hashCode();
       return result;
     }
   }
 
-  static final class Entry<V> {
+  static final class Entry {
     @Nullable final String parentId;
     final String id;
     final boolean shared;
-    @Nullable final Object qualifier;
-    final V value;
+    @Nullable final Endpoint endpoint;
+    final Span span;
 
-    Entry(@Nullable String parentId, String id, boolean shared, @Nullable Object qualifier,
-      V value) {
+    Entry(@Nullable String parentId, String id, boolean shared, @Nullable Endpoint endpoint,
+      Span span) {
       if (id == null) throw new NullPointerException("id == null");
-      if (value == null) throw new NullPointerException("value == null");
+      if (span == null) throw new NullPointerException("span == null");
       this.parentId = parentId;
       this.id = id;
       this.shared = shared;
-      this.qualifier = qualifier;
-      this.value = value;
+      this.endpoint = endpoint;
+      this.span = span;
     }
 
     @Override public String toString() {
@@ -327,20 +325,20 @@ public final class Node<V> {
         + id
         + ", shared="
         + shared
-        + ", qualifier="
-        + qualifier
-        + ", value="
-        + value
+        + ", endpoint="
+        + endpoint
+        + ", span="
+        + span
         + "}";
     }
   }
 
   @Override public String toString() {
-    List<V> childrenValues = new ArrayList<>();
+    List childrenSpans = new ArrayList();
     for (int i = 0, length = children.size(); i < length; i++) {
-      childrenValues.add(children.get(i).value);
+      childrenSpans.add(children.get(i).span);
     }
-    return "Node{parent=" + (parent != null ? parent.value : null)
-      + ", value=" + value + ", children=" + childrenValues + "}";
+    return "SpanNode{parent=" + (parent != null ? parent.span : null)
+      + ", span=" + span + ", children=" + childrenSpans + "}";
   }
 }

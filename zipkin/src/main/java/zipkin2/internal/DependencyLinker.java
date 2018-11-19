@@ -62,18 +62,18 @@ public final class DependencyLinker {
     if (logger.isLoggable(FINE)) logger.fine("linking trace " + first.traceId());
 
     // Build a tree based on spanId and parentId values
-    Node.TreeBuilder<Span> builder = new Node.TreeBuilder<>(logger, first.traceId());
+    SpanNode.TreeBuilder builder = new SpanNode.TreeBuilder(logger, first.traceId());
     for (int i = 0, length = cleaned.size(); i < length; i++) {
       Span next = cleaned.get(i);
-      builder.addNode(next.parentId(), next.id(), next.shared(), next.localEndpoint(), next);
+      builder.addNode(next);
     }
 
-    Node<Span> tree = builder.build();
+    SpanNode tree = builder.build();
 
     if (logger.isLoggable(FINE)) logger.fine("traversing trace tree, breadth-first");
-    for (Iterator<Node<Span>> i = tree.traverse(); i.hasNext(); ) {
-      Node<Span> current = i.next();
-      Span currentSpan = current.value();
+    for (Iterator<SpanNode> i = tree.traverse(); i.hasNext(); ) {
+      SpanNode current = i.next();
+      Span currentSpan = current.span();
       if (currentSpan == null) {
         logger.fine("skipping synthetic node for broken span tree");
         continue;
@@ -169,13 +169,13 @@ public final class DependencyLinker {
     return this;
   }
 
-  Span findRpcAncestor(Node<Span> current) {
-    Node<Span> ancestor = current.parent();
+  Span findRpcAncestor(SpanNode current) {
+    SpanNode ancestor = current.parent();
     while (ancestor != null) {
       if (logger.isLoggable(FINE)) {
-        logger.fine("processing ancestor " + ancestor.value());
+        logger.fine("processing ancestor " + ancestor.span());
       }
-      Span maybeRemote = ancestor.value();
+      Span maybeRemote = ancestor.span();
       if (maybeRemote != null && maybeRemote.kind() != null) return maybeRemote;
       ancestor = ancestor.parent();
     }
