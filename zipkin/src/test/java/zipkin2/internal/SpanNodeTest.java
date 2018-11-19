@@ -191,9 +191,7 @@ public class SpanNodeTest {
     List<Span> copy = new ArrayList<>(trace);
     Collections.reverse(copy);
 
-    SpanNode.TreeBuilder treeBuilder = new SpanNode.TreeBuilder(logger, copy.get(0).traceId());
-    for (Span span : copy) treeBuilder.addNode(span);
-    return treeBuilder.build();
+    return new SpanNode.Builder(logger).build(copy);
   }
 
   @Test public void constructsTraceTree_dedupes() {
@@ -203,9 +201,7 @@ public class SpanNodeTest {
       Span.newBuilder().traceId("a").id("a").build()
     );
 
-    SpanNode.TreeBuilder treeBuilder = new SpanNode.TreeBuilder(logger, trace.get(0).traceId());
-    for (Span span : trace) treeBuilder.addNode(span);
-    SpanNode root = treeBuilder.build();
+    SpanNode root = new SpanNode.Builder(logger).build(trace);
 
     assertThat(root.span())
       .isEqualTo(trace.get(0));
@@ -221,11 +217,7 @@ public class SpanNodeTest {
       Span.newBuilder().traceId("a").id("e").name("lost-0").build(),
       Span.newBuilder().traceId("a").id("f").name("lost-1").build());
     int treeSize = 0;
-    SpanNode.TreeBuilder builder = new SpanNode.TreeBuilder(logger, spans.get(0).traceId());
-    for (Span span : spans) {
-      assertThat(builder.addNode(span)).isTrue();
-    }
-    SpanNode tree = builder.build();
+    SpanNode tree = new SpanNode.Builder(logger).build(spans);
     Iterator<SpanNode> iter = tree.traverse();
     while (iter.hasNext()) {
       iter.next();
@@ -233,6 +225,7 @@ public class SpanNodeTest {
     }
     assertThat(treeSize).isEqualTo(spans.size());
     assertThat(messages).containsExactly(
+      "building trace tree: traceId=000000000000000a",
       "attributing span missing parent to root: traceId=000000000000000a, rootSpanId=000000000000000b, spanId=000000000000000e",
       "attributing span missing parent to root: traceId=000000000000000a, rootSpanId=000000000000000b, spanId=000000000000000f"
     );
@@ -243,14 +236,13 @@ public class SpanNodeTest {
     Span s3 = Span.newBuilder().traceId("a").parentId("a").id("c").name("s3").build();
     Span s4 = Span.newBuilder().traceId("a").parentId("a").id("d").name("s4").build();
 
-    SpanNode.TreeBuilder treeBuilder = new SpanNode.TreeBuilder(logger, s2.traceId());
-    for (Span span : asList(s2, s3, s4)) treeBuilder.addNode(span);
-    SpanNode root = treeBuilder.build();
+    SpanNode root = new SpanNode.Builder(logger).build(asList(s2, s3, s4));
 
     assertThat(root.span()).isNull();
     assertThat(root.children()).extracting(SpanNode::span)
       .containsExactly(s2, s3, s4);
     assertThat(messages).containsExactly(
+      "building trace tree: traceId=000000000000000a",
       "substituting dummy node for missing root span: traceId=000000000000000a"
     );
   }
@@ -260,14 +252,13 @@ public class SpanNodeTest {
     Span s3 = Span.newBuilder().traceId("a").parentId("a").id("c").name("s3").build();
     Span s4 = Span.newBuilder().traceId("a").parentId("a").id("d").name("s4").build();
 
-    SpanNode.TreeBuilder treeBuilder = new SpanNode.TreeBuilder(logger, s2.traceId());
-    for (Span span : asList(s2, s3, s4)) treeBuilder.addNode(span);
-    SpanNode root = treeBuilder.build();
+    SpanNode root = new SpanNode.Builder(logger).build(asList(s2, s3, s4));
 
     assertThat(root.span()).isNull();
     assertThat(root.children()).extracting(SpanNode::span)
       .containsExactly(s2, s3, s4);
     assertThat(messages).containsExactly(
+      "building trace tree: traceId=000000000000000a",
       "substituting dummy node for missing root span: traceId=000000000000000a"
     );
   }

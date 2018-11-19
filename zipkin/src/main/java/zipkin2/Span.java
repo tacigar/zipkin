@@ -25,10 +25,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.logging.Logger;
 import zipkin2.codec.SpanBytesDecoder;
 import zipkin2.codec.SpanBytesEncoder;
+import zipkin2.internal.DependencyLinker;
 import zipkin2.internal.Nullable;
 
+import static java.lang.String.format;
+import static java.util.logging.Level.FINE;
 import static zipkin2.Endpoint.HEX_DIGITS;
 
 /**
@@ -590,6 +594,13 @@ public final class Span implements Serializable { // for Spark and Flink jobs
       if (traceId == null) missing += " traceId";
       if (id == null) missing += " id";
       if (!"".equals(missing)) throw new IllegalStateException("Missing :" + missing);
+      if (id.equals(parentId)) { // edge case, so don't require a logger field
+        Logger logger = Logger.getLogger(Span.class.getName());
+        if (logger.isLoggable(FINE)) {
+          logger.fine(format("undoing circular dependency: traceId=%s, spanId=%s", traceId, id));
+        }
+        parentId = null;
+      }
       return new Span(this);
     }
 
