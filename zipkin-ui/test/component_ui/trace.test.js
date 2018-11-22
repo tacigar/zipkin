@@ -199,26 +199,11 @@ describe('initSpans', () => {
       traceId: '2480ccca8df0fca5',
       name: 'get',
       id: '2480ccca8df0fca5',
+      kind: 'SERVER',
       timestamp: 1457186385375000,
       duration: 333000,
-      annotations: [{
-        timestamp: 1457186385375000,
-        value: 'sr',
-        endpoint: {serviceName: '111', ipv4: '127.0.0.1', port: 9411}
-      }, {
-        timestamp: 1457186385708000,
-        value: 'ss',
-        endpoint: {serviceName: '111', ipv4: '127.0.0.1', port: 9411}
-      }],
-      binaryAnnotations: [{
-        key: 'sa',
-        value: true,
-        endpoint: {serviceName: '111', ipv4: '127.0.0.1', port: 9411}
-      }, {
-        key: 'literally-false',
-        value: 'false',
-        endpoint: {serviceName: '111', ipv4: '127.0.0.1', port: 9411}
-      }]
+      localEndpoint: {serviceName: '111', ipv4: '127.0.0.1', port: 9411},
+      tags: {'literally-false': 'false'}
     }];
 
     const $trace = renderTrace(testTrace);
