@@ -871,7 +871,7 @@ describe('mergeV2ById', () => {
 
     expect(spans.map(s => `${s.id}-${!!s.shared}-${s.timestamp}`)).to.deep.equal([
       '0000000000000004-false-2', // unshared is first even if later!
-      '0000000000000004-true',
+      '0000000000000004-true-1',
       '0000000000000003-false-2',
       '0000000000000002-false-3'
     ]);

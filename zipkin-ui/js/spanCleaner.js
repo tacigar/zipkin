@@ -123,7 +123,7 @@ function compareShared(left, right) {
   if (left === right) {
     return 0;
   } else {
-    return left === true ? 1 : -1;
+    return left ? 1 : -1;
   }
 }
 
@@ -223,8 +223,10 @@ export function mergeV2ById(spans) {
     // order client first in case of shared spans (shared is always server)
     if (a.id === b.id) {
       const byShared = compareShared(a.shared, b.shared);
+      console.log('A: ', a.id, a.shared, b.id, b.shared);
       if (byShared === 1) return 1; // order server last
     }
+    console.log('koko');
 
     // Either a and b are root or neither are. sort by shared timestamp, then name
     return compare(a.timestamp, b.timestamp) || compare(a.name, b.name);
