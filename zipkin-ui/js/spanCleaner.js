@@ -120,11 +120,13 @@ function compareEndpoint(left, right) {
 
 // false or null first (client first)
 function compareShared(left, right) {
-  if (left === right) {
+  if (!left && !right || left && right) {
     return 0;
-  } else {
-    return left ? 1 : -1;
   }
+  if (left && !right) {
+    return 1;
+  }
+  return -1;
 }
 
 function cleanupComparator(left, right) {
@@ -213,7 +215,7 @@ export function mergeV2ById(spans) {
 
   // sort by timestamp, then name, root/shared first in case of skew
   // TODO: this should be a topological sort
-  return result.sort((a, b) => {
+  const x = result.sort((a, b) => {
     if (!a.parentId && b.parentId) { // a is root
       return -1;
     } else if (a.parentId && !b.parentId) { // b is root
@@ -223,7 +225,7 @@ export function mergeV2ById(spans) {
     // order client first in case of shared spans (shared is always server)
     if (a.id === b.id) {
       const byShared = compareShared(a.shared, b.shared);
-      console.log('A: ', a.id, a.shared, b.id, b.shared);
+      console.log('A: ', a.id, a.shared, a.timestamp, b.id, b.shared, b.timestamp, byShared);
       if (byShared === 1) return 1; // order server last
     }
     console.log('koko');
@@ -231,4 +233,7 @@ export function mergeV2ById(spans) {
     // Either a and b are root or neither are. sort by shared timestamp, then name
     return compare(a.timestamp, b.timestamp) || compare(a.name, b.name);
   });
+
+  console.log(x);
+  return x;
 }
