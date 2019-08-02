@@ -15,7 +15,7 @@ import PropTypes from 'prop-types';
 import React from 'react';
 
 import LoadingOverlay from '../Common/LoadingOverlay';
-import DetailedTraceSummary from '../DetailedTraceSummary';
+import DetailedTraceSummary from '../TraceTimeline';
 import { detailedTraceSummaryPropTypes } from '../../prop-types';
 
 const propTypes = {
