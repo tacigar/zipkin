@@ -59,33 +59,26 @@ const useStyles = makeStyles(theme => ({
     textDecoration: 'none',
     outline: 'none',
   },
-  data: {
+  dataGridContainer: {
     position: 'relative',
     borderBottom: `1px solid ${theme.palette.grey[200]}`,
   },
+  dataGridItem: {
+    paddingLeft: theme.spacing(1.5),
+    paddingRight: theme.spacing(1.5),
+    paddingTop: theme.spacing(2),
+    paddingBottom: theme.spacing(2),
+  },
   durationBar: {
+    // Opacity cannot be set by Box's props.
     opacity: 0.4,
   },
-  dataCell: {
-    display: 'flex',
-    paddingLeft: '1rem',
-    paddingRight: '1rem',
-    paddingTop: '1.2rem',
-    paddingBottom: '1.2rem',
-  },
-  badgeRow: {
-    paddingLeft: '1rem',
-    paddingRight: '1rem',
-    paddingTop: '0.6rem',
-    paddingBottom: '0.6rem',
+  serviceBadgeRow: {
+    // It seems that it is difficult to add color only to the borderBottom in Box.
     borderBottom: `1px solid ${theme.palette.grey[300]}`,
   },
   serviceName: {
     textTransform: 'uppercase',
-  },
-  subInfo: {
-    marginLeft: '0.6rem',
-    color: theme.palette.text.hint,
   },
 }));
 
@@ -95,54 +88,65 @@ export const TracesTableRowImpl = ({
   correctedTraceMap,
 }) => {
   const classes = useStyles();
-
   const startTime = moment(traceSummary.timestamp / 1000);
-
   const correctedTrace = correctedTraceMap[traceSummary.traceId];
   const { spanName, serviceName } = rootServiceAndSpanName(correctedTrace);
 
   return (
-    <Box className={classes.root}>
+    <div className={classes.root}>
       <Link to={`/traces/${traceSummary.traceId}`} className={classes.anchor}>
-        <Grid container spacing={0} className={classes.data}>
+        <Grid container spacing={0} className={classes.dataGridContainer}>
           <Box
-            position="absolute"
             width={`${traceSummary.width}%`}
             height="100%"
+            position="absolute"
+            bgcolor={selectColorByInfoClass(traceSummary.infoClass)}
             className={classes.durationBar}
-            style={{ backgroundColor: selectColorByInfoClass(traceSummary.infoClass) }}
             data-testid="duration-bar"
           />
-          <Grid item xs={3} className={classes.dataCell}>
-            <Box className={classes.serviceName} data-testid="service-name">
+          <Grid item xs={3} className={classes.dataGridItem}>
+            <span className={classes.serviceName} data-testid="service-name">
               {`${serviceName}`}
-            </Box>
-            <Box className={classes.subInfo} data-testid="span-name">
+            </span>
+            <Box
+              component="span"
+              ml={0.5}
+              color="text.hint"
+              data-testid="span-name"
+            >
               {`(${spanName})`}
             </Box>
           </Grid>
-          <Grid item xs={3} className={classes.dataCell}>
+          <Grid item xs={3} className={classes.dataGridItem}>
             {traceSummary.traceId}
           </Grid>
-          <Grid item xs={3} className={classes.dataCell}>
-            <Box>
+          <Grid item xs={3} className={classes.dataGridItem}>
+            <span>
               {startTime.format('MM/DD HH:mm:ss:SSS')}
-            </Box>
-            <Box className={classes.subInfo}>
+            </span>
+            <Box component="span" ml={0.5} color="text.hint">
               {`(${startTime.fromNow()})`}
             </Box>
           </Grid>
-          <Grid item xs={3} className={classes.dataCell}>
+          <Grid item xs={3} className={classes.dataGridItem}>
             {traceSummary.durationStr}
           </Grid>
         </Grid>
       </Link>
       {/* In HTML5, anchor tag including interactive content is invalid.
           So ServiceBadge which has onClick callback cannot be surrounded by Link. */}
-      <Box display="flex" flexWrap="wrap" className={classes.badgeRow}>
+      <Box
+        display="flex"
+        flexWrap="wrap"
+        pl={1.5}
+        pr={1.5}
+        pt={1}
+        pb={1}
+        className={classes.serviceBadgeRow}
+      >
         {
           traceSummary.serviceSummaries.map(serviceSummary => (
-            <Box key={serviceSummary.serviceName} mr={0.2} ml={0.2}>
+            <Box key={serviceSummary.serviceName} m={0.2}>
               <ServiceBadge
                 serviceName={serviceSummary.serviceName}
                 count={serviceSummary.spanCount}
@@ -155,7 +159,7 @@ export const TracesTableRowImpl = ({
           ))
         }
       </Box>
-    </Box>
+    </div>
   );
 };
 
