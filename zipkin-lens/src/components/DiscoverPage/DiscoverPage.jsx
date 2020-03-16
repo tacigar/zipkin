@@ -11,350 +11,133 @@
  * or implied. See the License for the specific language governing permissions and limitations under
  * the License.
  */
-import { Trans } from '@lingui/macro';
 import PropTypes from 'prop-types';
-import React, { useEffect, useCallback } from 'react';
+import React from 'react';
 import { connect } from 'react-redux';
-import { withRouter } from 'react-router-dom';
-import moment from 'moment';
-import queryString from 'query-string';
-import isEmpty from 'lodash/isEmpty';
-import isEqual from 'lodash/isEqual';
-import Box from '@material-ui/core/Box';
-import CircularProgress from '@material-ui/core/CircularProgress';
-import Paper from '@material-ui/core/Paper';
-import Typography from '@material-ui/core/Typography';
-import { makeStyles } from '@material-ui/styles';
 
-import { useUiConfig } from '../UiConfig';
-import TraceJsonUploader from '../Common/TraceJsonUploader';
-import TraceIdSearchInput from '../Common/TraceIdSearchInput';
-import TracesTab from './TracesTab';
-import GlobalSearch from '../GlobalSearch';
-import {
-  buildCommonQueryParameters,
-  buildTracesApiQueryParameters,
-  extractConditionsFromQueryParameters,
-} from './api';
-import { buildQueryParameters } from '../../util/api';
-import { useMount } from '../../hooks';
-import * as tracesActionCreators from '../../actions/traces-action';
-import * as servicesActionCreators from '../../actions/services-action';
-import * as remoteServicesActionCreators from '../../actions/remote-services-action';
-import * as spansActionCreators from '../../actions/spans-action';
-import * as autocompleteKeysActionCreators from '../../actions/autocomplete-keys-action';
-import * as globalSearchActionCreators from '../../actions/global-search-action';
-import {
-  globalSearchLookbackConditionPropTypes,
-  globalSearchConditionsPropTypes,
-} from '../../prop-types';
+import SearchBar from './SearchBar';
+import { fetchServices } from '../../actions/services-action';
+import { fetchAutocompleteKeys } from '../../actions/autocomplete-keys-action';
 
-import ExplainBox from './ExplainBox';
-
-const useStyles = makeStyles((theme) => ({
-  header: {
-    paddingRight: theme.spacing(3),
-    paddingLeft: theme.spacing(3),
-  },
-  titleRow: {
-    width: '100%',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  upperRightBox: {
-    paddingRight: theme.spacing(3),
-    display: 'flex',
-    alignItems: 'center',
-  },
-  tabs: {
-    color: theme.palette.text.primary,
-    backgroundColor: theme.palette.common.white,
-    height: '2rem',
-    minHeight: '2rem',
-  },
-  tab: {
-    height: '2rem',
-    minHeight: '2rem',
-  },
-  loadingIndicatorWrapper: {
-    width: '100%',
-    height: '100%',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  explainBoxWrapper: {
-    width: '100%',
-    height: '100%',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  contentPaper: {
-    height: '100%',
-    marginTop: theme.spacing(2),
-    marginRight: theme.spacing(3),
-    marginBottom: theme.spacing(2),
-    marginLeft: theme.spacing(3),
-  },
-  content: {
-    display: 'flex',
-    flexDirection: 'column',
-    overflow: 'auto',
-    width: '100%',
-    height: '100%',
-  },
-}));
-
-const DiscoverPageHeader = () => {
-  const classes = useStyles();
-
-  return (
-    <Box className={classes.titleRow}>
-      <Typography variant="h5">
-        <Trans>Discover</Trans>
-      </Typography>
-      <Box className={classes.upperRightBox}>
-        <TraceJsonUploader />
-        <TraceIdSearchInput />
-      </Box>
-    </Box>
-  );
+const propTypes = {
+  services: PropTypes.arrayOf(PropTypes.string).isRequired,
+  remoteServices: PropTypes.arrayOf(PropTypes.string).isRequired,
+  spans: PropTypes.arrayOf(PropTypes.string).isRequired,
+  autocompleteKeys: PropTypes.arrayOf(PropTypes.string).isRequired,
+  autocompleteValues: PropTypes.arrayOf(PropTypes.string).isRequired,
+  isLoadingServices: PropTypes.bool.isRequired,
+  isLoadingRemoteServices: PropTypes.bool.isRequired,
+  isLoadingSpans: PropTypes.bool.isRequired,
+  isLoadingAutocompleteKeys: PropTypes.bool.isRequired,
+  isLoadingAutocompleteValues: PropTypes.bool.isRequired,
+  loadServices: PropTypes.func.isRequired,
+  loadRemoteServices: PropTypes.func.isRequired,
+  loadSpans: PropTypes.func.isRequired,
+  loadAutocompleteKeys: PropTypes.func.isRequired,
+  loadAutocompleteValues: PropTypes.func.isRequired,
 };
 
-const DiscoverPageContent = ({
-  isLoading,
-  traces,
-  lastQueryParams,
-  conditions,
-  lookbackCondition,
-  limitCondition,
-  history,
+const DiscoverPageImpl = ({
   location,
-  loadTraces,
-  fetchServices,
-  fetchRemoteServices,
-  fetchSpans,
-  fetchAutocompleteKeys,
-  clearTraces,
-  setConditions,
-  setLookbackCondition,
-  setLimitCondition,
+  history,
+  services,
+  remoteServices,
+  spans,
+  autocompleteKeys,
+  autocompleteValues,
+  isLoadingServices,
+  isLoadingRemoteServices,
+  isLoadingSpans,
+  isLoadingAutocompleteKeys,
+  isLoadingAutocompleteValues,
+  loadServices,
+  loadRemoteServices,
+  loadSpans,
+  loadAutocompleteKeys,
+  loadAutocompleteValues,
 }) => {
-  const classes = useStyles();
+  const [criteria, setCriteria] = React.useState([]);
 
-  const findTraces = useCallback(() => {
-    const currentTs = moment().valueOf();
-    const queryParameters = buildQueryParameters(
-      buildCommonQueryParameters(
-        conditions,
-        lookbackCondition,
-        limitCondition,
-        currentTs,
-      ),
-    );
-    history.push({ search: queryParameters });
-    loadTraces(
-      buildTracesApiQueryParameters(
-        conditions,
-        lookbackCondition,
-        limitCondition,
-        currentTs,
-      ),
-    );
-  }, [loadTraces, conditions, lookbackCondition, limitCondition, history]);
+  React.useEffect(() => {
+    loadAutocompleteKeys();
+  }, []);
 
-  const handleKeyDown = useCallback(
-    (event) => {
-      if (document.activeElement.tagName === 'BODY' && event.key === 'Enter') {
-        findTraces();
-      }
-    },
-    [findTraces],
-  );
+  const appendCriterion = (newCriterion) => {
+    setCriteria((prev) => [...prev, newCriterion]);
+  };
 
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [handleKeyDown]);
+  const changeCriterion = (criterion, index) => {
+    setCriteria((prev) => {
+      const newCriteria = [...prev];
+      newCriteria[index] = criterion;
+      return newCriteria;
+    });
 
-  useMount(() => {
-    // When mounted, parse a query parameter of a browser's address bar
-    // and retrieve initial conditions, and setup these conditions as redux state.
-    const queryParams = queryString.parse(location.search);
-    const {
-      conditions: conditionsFromUrl,
-      lookbackCondition: lookbackConditionFromUrl,
-      limitCondition: limitConditionFromUrl,
-    } = extractConditionsFromQueryParameters(queryParams);
+    // If the key is changed, start fetching suggestion data if can.
+    console.log(criteria, criterion, index);
+    if (criteria[index].key !== criterion.key) {
+      switch (criterion.key) {
+        case 'service':
+          loadServices();
+          break;
+        case 'remoteService':
+          loadRemoteServices();
+          break;
+        case 'span':
+          loadSpans();
+          break;
+        case 'minDuration':
+        case 'maxDuration':
+        case 'tag':
+          break;
+        default:
+          if (autocompleteKeys.includes(criterion.key)) {
 
-    setConditions(conditionsFromUrl);
-    if (lookbackConditionFromUrl.value) {
-      setLookbackCondition({
-        value: lookbackConditionFromUrl.value,
-        endTs: lookbackConditionFromUrl.endTs || moment().valueOf(),
-        startTs:
-          lookbackConditionFromUrl.startTs ||
-          moment()
-            .subtract(15, 'minutes')
-            .valueOf(),
-      });
-    }
-    setLimitCondition(limitConditionFromUrl || 10);
-
-    // Next, fetch data which will be shown as conditions in GlobalSearch.
-    fetchServices();
-    const serviceNameCondition = conditionsFromUrl.find(
-      (condition) => condition.key === 'serviceName',
-    );
-    if (serviceNameCondition) {
-      fetchRemoteServices(serviceNameCondition.value);
-      fetchSpans(serviceNameCondition.value);
-    }
-    fetchAutocompleteKeys();
-
-    const currentTs = lookbackConditionFromUrl.endTs || moment().valueOf();
-
-    // Fetch traces only if one or more conditions are set.
-    if (
-      !isEmpty(conditionsFromUrl) ||
-      !isEmpty(lookbackConditionFromUrl) ||
-      !!limitConditionFromUrl
-    ) {
-      const apiQueryParams = buildTracesApiQueryParameters(
-        conditionsFromUrl,
-        lookbackConditionFromUrl,
-        limitConditionFromUrl,
-        currentTs,
-      );
-      if (!isEqual(apiQueryParams, lastQueryParams)) {
-        loadTraces(apiQueryParams);
+          }
       }
     }
-  });
-
-  if (!location.search && traces.length > 0) {
-    // Previously loaded traces but now back to the beginning, reset state and re-render.
-    clearTraces();
-    return null;
-  }
-  let content;
-  if (isLoading) {
-    content = (
-      <Box
-        className={classes.loadingIndicatorWrapper}
-        data-testid="loading-indicator"
-      >
-        <CircularProgress />
-      </Box>
-    );
-  } else if (traces.length === 0) {
-    content = (
-      <Box className={classes.explainBoxWrapper} data-testid="explain-box">
-        <ExplainBox />
-      </Box>
-    );
-  } else {
-    content = (
-      <Paper className={classes.contentPaper}>
-        <Box className={classes.content}>
-          <TracesTab />
-        </Box>
-      </Paper>
-    );
-  }
+  };
 
   return (
-    <>
-      <Box className={classes.header}>
-        <DiscoverPageHeader />
-        <GlobalSearch findData={findTraces} />
-      </Box>
-      {content}
-    </>
+    <div>
+      Discover
+      <SearchBar
+        criteria={criteria}
+        services={services}
+        remoteServices={remoteServices}
+        spans={spans}
+        autocompleteKeys={autocompleteKeys}
+        autocompleteValues={autocompleteValues}
+        isLoadingServices={isLoadingServices}
+        isLoadingRemoteServices={isLoadingRemoteServices}
+        isLoadingSpans={isLoadingSpans}
+        isLoadingAutocompleteKeys={isLoadingAutocompleteKeys}
+        isLoadingAutocompleteValues={isLoadingAutocompleteValues}
+        appendCriterion={appendCriterion}
+        changeCriterion={changeCriterion}
+      />
+    </div>
   );
 };
 
-DiscoverPageContent.propTypes = {
-  isLoading: PropTypes.bool.isRequired,
-  traces: PropTypes.arrayOf(PropTypes.any).isRequired,
-  lastQueryParams: PropTypes.shape({}).isRequired,
-  conditions: globalSearchConditionsPropTypes.isRequired,
-  lookbackCondition: globalSearchLookbackConditionPropTypes.isRequired,
-  limitCondition: PropTypes.number.isRequired,
-  history: PropTypes.shape({ push: PropTypes.func.isRequired }).isRequired,
-  location: PropTypes.shape({
-    pathname: PropTypes.string.isRequired,
-    search: PropTypes.string.isRequired,
-  }).isRequired,
-  loadTraces: PropTypes.func.isRequired,
-  fetchServices: PropTypes.func.isRequired,
-  fetchRemoteServices: PropTypes.func.isRequired,
-  fetchSpans: PropTypes.func.isRequired,
-  fetchAutocompleteKeys: PropTypes.func.isRequired,
-  clearTraces: PropTypes.func.isRequired,
-  setConditions: PropTypes.func.isRequired,
-  setLookbackCondition: PropTypes.func.isRequired,
-  setLimitCondition: PropTypes.func.isRequired,
-};
-
-const DiscoverPageImpl = (props) => {
-  const classes = useStyles();
-  const config = useUiConfig();
-
-  if (!config.searchEnabled) {
-    return (
-      <Box className={classes.header}>
-        <DiscoverPageHeader />
-        <Box className={classes.explainBoxWrapper}>
-          <Typography variant="body1">
-            <Trans>
-              Searching has been disabled via the searchEnabled property. You
-              can still view specific traces of which you know the trace id by
-              entering it in the "trace id..." textbox on the top-right.
-            </Trans>
-          </Typography>
-        </Box>
-      </Box>
-    );
-  }
-
-  return <DiscoverPageContent {...props} />;
-};
+DiscoverPageImpl.propTypes = propTypes;
 
 const mapStateToProps = (state) => ({
-  traces: state.traces.traces,
-  isLoading: state.traces.isLoading,
-  lastQueryParams: state.traces.lastQueryParams,
-  conditions: state.globalSearch.conditions,
-  lookbackCondition: state.globalSearch.lookbackCondition,
-  limitCondition: state.globalSearch.limitCondition,
+  services: state.services.services,
+  remoteServices: state.remoteServices.remoteServices,
+  spans: state.spans.spans,
+  autocompleteKeys: state.autocompleteKeys.autocompleteKeys,
+  autocompleteValues: state.autocompleteValues.autocompleteValues,
+  isLoadingServices: state.services.isLoading,
+  isLoadingRemoteServices: state.remoteServices.isLoading,
+  isLoadingSpans: state.spans.isLoadingSpans,
+  isLoadingAutocompleteKeys: state.autocompleteKeys.isLoading,
+  isLoadingAutocompleteValues: state.autocompleteValues.isLoading,
 });
 
 const mapDispatchToProps = (dispatch) => ({
-  loadTraces: (params) => dispatch(tracesActionCreators.loadTraces(params)),
-  clearTraces: () => dispatch(tracesActionCreators.clearTraces()),
-  fetchServices: () => dispatch(servicesActionCreators.fetchServices()),
-  fetchRemoteServices: (serviceName) =>
-    dispatch(remoteServicesActionCreators.fetchRemoteServices(serviceName)),
-  fetchSpans: (serviceName) =>
-    dispatch(spansActionCreators.fetchSpans(serviceName)),
-  fetchAutocompleteKeys: () =>
-    dispatch(autocompleteKeysActionCreators.fetchAutocompleteKeys()),
-  setConditions: (conditions) =>
-    dispatch(globalSearchActionCreators.setConditions(conditions)),
-  setLookbackCondition: (lookbackCondition) =>
-    dispatch(
-      globalSearchActionCreators.setLookbackCondition(lookbackCondition),
-    ),
-  setLimitCondition: (limitCondition) =>
-    dispatch(globalSearchActionCreators.setLimitCondition(limitCondition)),
+  loadServices: () => dispatch(fetchServices()),
+  loadAutocompleteKeys: () => dispatch(fetchAutocompleteKeys()),
 });
 
-export default connect(
-  mapStateToProps,
-  mapDispatchToProps,
-)(withRouter(DiscoverPageImpl));
+export default connect(mapStateToProps, mapDispatchToProps)(DiscoverPageImpl);
