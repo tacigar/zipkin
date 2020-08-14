@@ -42,6 +42,7 @@ import { useUiConfig } from '../UiConfig';
 import { clearTraces, loadTraces } from '../../actions/traces-action';
 import { RootState } from '../../store';
 import ExplainBox from '../Common/ExplainBox';
+import TraceSummaryAccordion from './TraceSummaryAccordion';
 
 const TracesTab = require('./TracesTab').default;
 
@@ -399,8 +400,13 @@ const DiscoverPageContent: React.FC<DiscoverPageContentProps> = ({
     }
   }, [setQueryParams, tempCriteria, tempLookback, tempLimit]);
 
-  const [traces, isLoadingTraces] = useSelector((state: RootState) => [
+  const [
+    traces,
+    traceSummaries,
+    isLoadingTraces,
+  ] = useSelector((state: RootState) => [
     state.traces.traces,
+    state.traces.traceSummaries,
     state.traces.isLoading,
   ]);
 
@@ -450,11 +456,9 @@ const DiscoverPageContent: React.FC<DiscoverPageContentProps> = ({
       />
     );
   } else {
-    content = (
-      <Paper elevation={3}>
-        <TracesTab />
-      </Paper>
-    );
+    content = traceSummaries.map((traceSummary: any) => (
+      <TraceSummaryAccordion traceSummary={traceSummary} />
+    ));
   }
 
   return (
@@ -524,7 +528,7 @@ const DiscoverPageContent: React.FC<DiscoverPageContentProps> = ({
           </>
         ) : null}
       </Box>
-      <Box p={4} flexGrow={1} overflow="auto">
+      <Box pl={12} pr={12} pt={4} pb={4} flexGrow={1} overflow="auto" width="100%">
         {content}
       </Box>
     </Box>
