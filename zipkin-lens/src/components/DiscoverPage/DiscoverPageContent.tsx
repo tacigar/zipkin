@@ -27,6 +27,8 @@ import {
   TextField,
   Divider,
   Collapse,
+  Typography,
+  IconButton,
 } from '@material-ui/core';
 import ExpandLessIcon from '@material-ui/icons/ExpandLess';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
@@ -35,6 +37,7 @@ import moment from 'moment';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useHistory, useLocation } from 'react-router-dom';
+
 import styled from 'styled-components';
 
 import Criterion, { newCriterion } from './Criterion';
@@ -46,6 +49,8 @@ import ExplainBox from '../Common/ExplainBox';
 import { useUiConfig } from '../UiConfig';
 import { clearTraces, loadTraces } from '../../actions/traces-action';
 import { RootState } from '../../store';
+import SummariesScatterChart from './ResultSummary';
+import ResultSummary from './ResultSummary';
 
 interface DiscoverPageContentProps {
   autocompleteKeys: string[];
@@ -458,9 +463,14 @@ const DiscoverPageContent: React.FC<DiscoverPageContentProps> = ({
     );
   } else {
     content = (
-      <Paper elevation={3}>
-        <TraceSummaryTable traceSummaries={traceSummaries} />
-      </Paper>
+      <>
+        <Box mb={3}>
+          <ResultSummary traceSummaries={traceSummaries} />
+        </Box>
+        <Paper elevation={3}>
+          <TraceSummaryTable traceSummaries={traceSummaries} />
+        </Paper>
+      </>
     );
   }
 
@@ -546,6 +556,10 @@ const DiscoverPageContent: React.FC<DiscoverPageContentProps> = ({
 };
 
 export default DiscoverPageContent;
+
+const ResultSummaryPaper = styled(Paper)`
+  margin-bottom: ${({ theme }) => theme.spacing(3)}px;
+`;
 
 const LookbackButton = styled(Button).attrs<{ isShowingLookbackMenu: boolean }>(
   ({ isShowingLookbackMenu }) => ({
