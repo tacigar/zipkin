@@ -25,16 +25,16 @@ import { BrowserRouter, Route } from 'react-router-dom';
 import { useTitle } from 'react-use';
 import { ThemeProvider } from 'styled-components';
 
+import AlertSnackbar from './AlertSnackbar';
 import Layout from './Layout';
 import DependenciesPage from '../DependenciesPage';
 import DiscoverPage from '../DiscoverPage';
 import TracePage from '../TracePage';
 import { UiConfig, UiConfigConsumer } from '../UiConfig';
-import configureStore from '../../store/configure-store';
 import { theme } from '../../constants/color';
-import { i18n } from '../../util/locale';
 import { BASE_PATH } from '../../constants/api';
-import AlertSnackbar from './AlertSnackbar';
+import { configureStore } from '../../store';
+import { i18n } from '../../util/locale';
 
 const App: React.FC = () => {
   useTitle('Zipkin');
@@ -47,7 +47,7 @@ const App: React.FC = () => {
             <MuiThemeProvider theme={theme}>
               <UiConfigConsumer>
                 {(config) => (
-                  <Provider store={configureStore(config)}>
+                  <Provider store={configureStore()}>
                     <AlertSnackbar />
                     <I18nProvider i18n={i18n}>
                       <BrowserRouter basename={BASE_PATH}>

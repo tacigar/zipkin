@@ -12,12 +12,12 @@
  * the License.
  */
 
-import { Action } from 'redux';
-import { ThunkAction } from 'redux-thunk';
+import { Action, applyMiddleware, createStore } from 'redux';
+import thunk, { ThunkAction } from 'redux-thunk';
 
-import createReducer from '../reducers';
+import reducer from './reducers';
 
-export type RootState = ReturnType<ReturnType<typeof createReducer>>;
+export type RootState = ReturnType<typeof reducer>;
 
 export type AppThunk<ReturnType = void> = ThunkAction<
   ReturnType,
@@ -25,3 +25,6 @@ export type AppThunk<ReturnType = void> = ThunkAction<
   unknown,
   Action<string>
 >;
+
+export const configureStore = () =>
+  createStore(reducer, applyMiddleware(thunk));

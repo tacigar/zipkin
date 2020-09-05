@@ -26,7 +26,7 @@ import { ThemeProvider } from 'styled-components';
 
 import { UiConfigContext } from '../../components/UiConfig';
 import { theme } from '../../constants/color';
-import configureStore from '../../store/configure-store';
+import { configureStore } from '../../store';
 import { messages as enMessages } from '../../translations/en/messages';
 
 const i18n = setupI18n();
@@ -48,7 +48,7 @@ export default (
     uiConfig = {},
   }: RenderProps = {},
 ) => {
-  const store = configureStore({});
+  const store = configureStore();
 
   const filledConfig = {
     // Defaults copied from ZipkinUiCOnfiguration.java

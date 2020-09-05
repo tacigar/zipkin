@@ -26,18 +26,17 @@ import trace from './trace';
 import traces from './traces';
 import traceViewer from './trace-viewer';
 
-const createReducer = () =>
-  combineReducers({
-    [appSlice.name]: appSlice.reducer,
-    [autocompleteKeysSlice.name]: autocompleteKeysSlice.reducer,
-    [autocompleteValuesSlice.name]: autocompleteValuesSlice.reducer,
-    [dependenciesSlice.name]: dependenciesSlice.reducer,
-    [remoteServicesSlice.name]: remoteServicesSlice.reducer,
-    [servicesSlice.name]: servicesSlice.reducer,
-    [spansSlice.name]: spansSlice.reducer,
-    trace,
-    traces,
-    traceViewer,
-  });
+const reducer = combineReducers({
+  [appSlice.name]: appSlice.reducer,
+  [autocompleteKeysSlice.name]: autocompleteKeysSlice.reducer,
+  [autocompleteValuesSlice.name]: autocompleteValuesSlice.reducer,
+  [dependenciesSlice.name]: dependenciesSlice.reducer,
+  [remoteServicesSlice.name]: remoteServicesSlice.reducer,
+  [servicesSlice.name]: servicesSlice.reducer,
+  [spansSlice.name]: spansSlice.reducer,
+  trace,
+  traces,
+  traceViewer,
+});
 
-export default createReducer;
+export default reducer;
