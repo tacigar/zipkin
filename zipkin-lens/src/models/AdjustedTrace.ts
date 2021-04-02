@@ -53,6 +53,7 @@ type AdjustedTrace = {
     spanName: string; // span.name or 'unknown' on null
   };
   spans: AdjustedSpan[];
+  depth: number;
 };
 
 export default AdjustedTrace;
