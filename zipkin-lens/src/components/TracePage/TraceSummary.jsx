@@ -179,32 +179,11 @@ const TraceSummary = React.memo(({ traceSummary }) => {
           display="flex"
           flexDirection="column"
         >
-          <TraceTimelineHeader
-            startTs={startTs - traceSummary.spans[0].timestamp}
-            endTs={endTs - traceSummary.spans[0].timestamp}
-            isRerooted={isRerooted}
-            isRootedTrace={isRootedTrace}
-            onResetRerootButtonClick={handleResetRerootButtonClick}
-            isSpanDetailOpened={isSpanDetailOpened}
-            onSpanDetailToggle={handleSpanDetailToggle}
-            onCollapseButtonClick={handleCollapseButtonClick}
-            onExpandButtonClick={handleExpandButtonClick}
-          />
           <Box flexGrow={1} width="100%">
             <AutoSizer>
               {({ height, width }) => (
                 <Box height={height} width={width} overflow="auto">
-                  <TraceTimeline
-                    currentSpanId={traceSummary.spans[currentSpanIndex].spanId}
-                    spans={shownTree}
-                    depth={traceSummary.depth}
-                    childrenHiddenSpanIds={childrenHiddenSpanIds}
-                    isRootedTrace={isRootedTrace}
-                    onRowClick={handleTimelineRowClick}
-                    onChildrenToggle={handleChildrenToggle}
-                    startTs={startTs}
-                    endTs={endTs}
-                  />
+                  <TraceTimeline spans={shownTree} rowHeight={40} />
                 </Box>
               )}
             </AutoSizer>
