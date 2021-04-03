@@ -16,7 +16,7 @@ import Box from '@material-ui/core/Box';
 import { AutoSizer } from 'react-virtualized';
 import minBy from 'lodash/minBy';
 
-import TraceSummaryHeader from './TraceSummaryHeader';
+import TracePageHeader from './TracePageHeader';
 import TraceTimeline from './TraceTimeline';
 import TraceTimelineHeader from './TraceTimelineHeader';
 import SpanDetail from './SpanDetail';
@@ -168,7 +168,7 @@ const TraceSummary = React.memo(({ traceSummary }) => {
   return (
     <Box height="calc(100vh - 64px)" display="flex" flexDirection="column">
       <Box boxShadow={3} zIndex={1}>
-        <TraceSummaryHeader
+        <TracePageHeader
           traceSummary={traceSummary}
           rootSpanIndex={rootSpanIndex}
         />
