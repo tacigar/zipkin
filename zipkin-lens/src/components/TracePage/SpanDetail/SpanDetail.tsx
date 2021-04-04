@@ -16,6 +16,7 @@ import { t, Trans } from '@lingui/macro';
 import { useLingui } from '@lingui/react';
 import {
   Box,
+  Button,
   Collapse,
   Divider,
   IconButton,
@@ -25,7 +26,7 @@ import ArrowDropDownIcon from '@material-ui/icons/ArrowDropDown';
 import ArrowDropUpIcon from '@material-ui/icons/ArrowDropUp';
 import ArrowRightIcon from '@material-ui/icons/ArrowRight';
 import LabelImportantIcon from '@material-ui/icons/LabelImportant';
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useToggle } from 'react-use';
 
 import SpanAnnotationTable from './SpanAnnotationTable';
@@ -34,18 +35,29 @@ import { selectServiceColor } from '../../../constants/color';
 import { AdjustedSpan } from '../../../models/AdjustedTrace';
 
 interface SpanDetailProps {
-  span: AdjustedSpan;
-  minHeight: number;
+  reroot: (spanId: string) => void;
+  span?: AdjustedSpan;
 }
 
-const SpanDetail = React.memo<SpanDetailProps>(({ span, minHeight }) => {
+const SpanDetail = React.memo<SpanDetailProps>(({ reroot, span }) => {
   const { i18n } = useLingui();
 
   const [openAnnotations, toggleOpenAnnotations] = useToggle(true);
   const [openTags, toggleOpenTags] = useToggle(true);
 
+  const handleRerootButtonClick = useCallback(() => {
+    if (span) {
+      reroot(span.spanId);
+    }
+  }, [reroot, span]);
+
+  if (!span) {
+    // Basically, always false
+    return null;
+  }
+
   return (
-    <Box bgcolor="background.paper" boxShadow={3} minHeight={minHeight}>
+    <Box bgcolor="background.paper" boxShadow={3} height="100%" overflow="auto">
       <Box
         pt={2}
         pl={2}
@@ -53,14 +65,27 @@ const SpanDetail = React.memo<SpanDetailProps>(({ span, minHeight }) => {
         pb={1.5}
         borderLeft="8px solid"
         borderColor={selectServiceColor(span.serviceName)}
+        display="flex"
+        justifyContent="space-between"
       >
-        <Typography variant="h6">{span.serviceName}</Typography>
-        <Box display="flex" alignItems="center">
-          <ArrowRightIcon fontSize="small" />
-          <Typography variant="body2" color="textSecondary">
-            {span.spanName}
-          </Typography>
-        </Box>
+        <div>
+          <Typography variant="h6">{span.serviceName}</Typography>
+          <Box display="flex" alignItems="center">
+            <ArrowRightIcon fontSize="small" />
+            <Typography variant="body2" color="textSecondary">
+              {span.spanName}
+            </Typography>
+          </Box>
+        </div>
+        <div>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={handleRerootButtonClick}
+          >
+            Reroot
+          </Button>
+        </div>
       </Box>
       <Divider />
       <Box display="flex" justifyContent="flex-end" mr={1} bgcolor="grey.50">

@@ -36,17 +36,17 @@ import { useToggle } from 'react-use';
 
 import { useUiConfig } from '../UiConfig';
 import * as api from '../../constants/api';
-import AdjustedTrace from '../../models/AdjustedTrace';
+import AdjustedTrace, { AdjustedSpan } from '../../models/AdjustedTrace';
 import Span from '../../models/Span';
 import { setAlert } from '../App/slice';
 
 interface TracePageHeaderProps {
   traceSummary?: AdjustedTrace;
-  rootSpanIndex?: number;
+  rootSpan?: AdjustedSpan;
 }
 
 const TracePageHeader = React.memo<TracePageHeaderProps>(
-  ({ traceSummary, rootSpanIndex = 0 }) => {
+  ({ traceSummary, rootSpan }) => {
     const { i18n } = useLingui();
     const config = useUiConfig();
     const dispatch = useDispatch();
@@ -153,10 +153,9 @@ const TracePageHeader = React.memo<TracePageHeaderProps>(
           { label: i18n._(t`Total Spans`), value: traceSummary.spans.length },
           {
             label: i18n._(t`Trace ID`),
-            value:
-              rootSpanIndex === 0
-                ? traceSummary.traceId
-                : `${traceSummary.traceId} - ${traceSummary.spans[rootSpanIndex].spanId}`,
+            value: !rootSpan
+              ? traceSummary.traceId
+              : `${traceSummary.traceId} - ${rootSpan.spanId}`,
           },
         ].map((entry) => (
           <Box key={entry.label} display="flex" mr={0.75}>

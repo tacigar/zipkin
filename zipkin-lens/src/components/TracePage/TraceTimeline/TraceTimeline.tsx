@@ -13,13 +13,17 @@
  */
 
 import { Box } from '@material-ui/core';
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
+import { AutoSizer } from 'react-virtualized';
 
-import { AdjustedSpan } from '../../../models/AdjustedTrace';
-import TraceTimelineRow from './TraceTimelineRow';
 import buildTimelineTree from './buildTimelineTree';
+import { SimpleVirtualizer } from './SimpleVirtualizer';
+import TraceTimelineHeader from './TraceTimelineHeader';
+import TraceTimelineRow from './TraceTimelineRow';
+import { AdjustedSpan } from '../../../models/AdjustedTrace';
 
 const treeWidthPercent = 10;
+const virtualizeThreshold = 100;
 
 const extractStartTsAndEndTs = (spans: AdjustedSpan[]) => {
   let startTs = Number.MAX_VALUE;
@@ -34,30 +38,108 @@ const extractStartTsAndEndTs = (spans: AdjustedSpan[]) => {
 };
 
 interface TraceTimelineProps {
+  closedSpanIds: { [key: string]: boolean };
+  openSpanDetail: boolean;
+  reroot: (span?: string) => void;
+  rootSpanId?: string;
   rowHeight: number;
+  setCurrentSpanId: (spanId: string) => void;
   spans: AdjustedSpan[];
+  toggleChildren: (spanId: string) => void;
+  toggleOpenSpanDetail: (b?: boolean) => void;
 }
 
-const TraceTimeline = React.memo<TraceTimelineProps>(({ spans, rowHeight }) => {
-  const [startTs, endTs] = useMemo(() => extractStartTsAndEndTs(spans), [
+const TraceTimeline = React.memo<TraceTimelineProps>(
+  ({
+    closedSpanIds,
+    openSpanDetail,
+    reroot,
+    rootSpanId,
+    rowHeight,
+    setCurrentSpanId,
     spans,
-  ]);
-  const tree = useMemo(() => buildTimelineTree(spans), [spans]);
-  return (
-    <Box bgcolor="background.paper">
-      {spans.map((span, index) => (
+    toggleChildren,
+    toggleOpenSpanDetail,
+  }) => {
+    const [startTs, endTs] = useMemo(() => extractStartTsAndEndTs(spans), [
+      spans,
+    ]);
+    const tree = useMemo(() => buildTimelineTree(spans), [spans]);
+
+    const renderSpan = useCallback(
+      (span: AdjustedSpan, index: number, style: React.CSSProperties) => (
         <TraceTimelineRow
           key={span.spanId}
           endTs={endTs}
+          isClosed={closedSpanIds[span.spanId]}
           rowHeight={rowHeight}
           span={span}
           startTs={startTs}
+          toggleChildren={toggleChildren}
+          toggleOpenSpanDetail={toggleOpenSpanDetail}
           treeData={tree[index]}
           treeWidthPercent={treeWidthPercent}
+          style={style}
+          setCurrentSpanId={setCurrentSpanId}
         />
-      ))}
-    </Box>
-  );
-});
+      ),
+      [
+        closedSpanIds,
+        endTs,
+        rowHeight,
+        setCurrentSpanId,
+        startTs,
+        toggleChildren,
+        toggleOpenSpanDetail,
+        tree,
+      ],
+    );
+
+    return (
+      <Box display="flex" flexDirection="column" height="100%">
+        <TraceTimelineHeader
+          endTs={endTs}
+          openSpanDetail={openSpanDetail}
+          reroot={reroot}
+          rootSpanId={rootSpanId}
+          startTs={startTs}
+          toggleOpenSpanDetail={toggleOpenSpanDetail}
+          treeWidthPercent={treeWidthPercent}
+        />
+        <Box pt={2} flexGrow={1} overflow="auto">
+          {spans.length > virtualizeThreshold ? (
+            <AutoSizer>
+              {({ width, height }) => (
+                <SimpleVirtualizer
+                  height={height}
+                  items={spans}
+                  itemHeight={rowHeight}
+                  renderItem={renderSpan}
+                  width={width}
+                />
+              )}
+            </AutoSizer>
+          ) : (
+            spans.map((span, index) => (
+              <TraceTimelineRow
+                key={span.spanId}
+                endTs={endTs}
+                isClosed={closedSpanIds[span.spanId]}
+                rowHeight={rowHeight}
+                span={span}
+                startTs={startTs}
+                toggleChildren={toggleChildren}
+                toggleOpenSpanDetail={toggleOpenSpanDetail}
+                treeData={tree[index]}
+                treeWidthPercent={treeWidthPercent}
+                setCurrentSpanId={setCurrentSpanId}
+              />
+            ))
+          )}
+        </Box>
+      </Box>
+    );
+  },
+);
 
 export default TraceTimeline;

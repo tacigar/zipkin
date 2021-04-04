@@ -127,4 +127,33 @@ describe('buildTimelineTree', () => {
       ['END', undefined], // SERVICE_F
     ]);
   });
+
+  it('should build a timeline tree (case 5)', () => {
+    // 0 +---------- SERVICE_A
+    expect(
+      buildTimelineTree([
+        { depth: 0 }, // SERVICE_A
+      ]),
+    ).toEqual([
+      [], // SERVICE_A
+    ]);
+  });
+
+  // Sometimes, users have multiple root traces..
+  it('should build a timeline tree (case 6)', () => {
+    // 0 +---------- SERVICE_A
+    // 0 +---------- SERVICE_B
+    // 1 +---------- SERVICE_C
+    expect(
+      buildTimelineTree([
+        { depth: 0 }, // SERVICE_A
+        { depth: 0 }, // SERVICE_B
+        { depth: 1 }, // SERVICE_C
+      ]),
+    ).toEqual([
+      [undefined], // SERVICE_A
+      ['BEGIN'], // SERVICE_B
+      ['END'], // SERVICE_C
+    ]);
+  });
 });
